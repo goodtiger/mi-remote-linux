@@ -15,6 +15,13 @@ from .config import ConfigError, default_config_text, load_config
 from .doctor import Doctor, render_report
 from .hid_guard import HID_GRAB_MODES, RemoteHIDGuard
 from .injector import PASTE_SHORTCUTS, LinuxTextInjector, TextInjectionError
+from .model_manager import (
+    MODEL_REPOSITORY,
+    ModelError,
+    ModelManager,
+    default_model_dir,
+    render_model_status,
+)
 from .remote_keys import KeyRunApp, KeyWatchApp, RemoteKeyService
 from .runtime import AlreadyRunningError, VoiceInstanceLock
 from .self_test import (
@@ -475,6 +482,39 @@ def cmd_service(args: argparse.Namespace) -> None:
         raise SystemExit(1) from exc
 
 
+def cmd_model(args: argparse.Namespace) -> None:
+    try:
+        if args.model_command == "status":
+            status = ModelManager(target=args.target).status()
+            print(status.to_json() if args.json else render_model_status(status))
+            if not status.ready:
+                raise SystemExit(1)
+            return
+
+        target = args.target or default_model_dir()
+        manager = ModelManager(target=target)
+
+        def show_progress(name: str, received: int, total: int | None) -> None:
+            if total:
+                detail = f"{received / total:6.1%}"
+            else:
+                detail = f"{received / 1024 / 1024:.1f} MiB"
+            print(f"\r下载 {name}: {detail}", end="", file=sys.stderr, flush=True)
+
+        print(f"模型来源：https://huggingface.co/{MODEL_REPOSITORY}")
+        result = manager.download(force=args.force, progress=show_progress)
+        if result.downloaded:
+            print(file=sys.stderr)
+        for name in result.skipped:
+            print(f"已校验，跳过：{name}")
+        for name in result.downloaded:
+            print(f"已下载并校验：{name}")
+        print(f"模型已就绪：{result.target}")
+    except ModelError as exc:
+        print(f"模型管理失败：{exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
 def main() -> None:
     """主入口。"""
     parser = argparse.ArgumentParser(
@@ -712,6 +752,20 @@ def main() -> None:
         "--force", action="store_true", help="允许删除非本工具生成的同名服务"
     )
     service_uninstall.set_defaults(func=cmd_service)
+
+    model_parser = subparsers.add_parser("model", help="检查或下载 Paraformer 语音模型")
+    model_subparsers = model_parser.add_subparsers(dest="model_command", required=True)
+    model_status = model_subparsers.add_parser("status", help="校验当前模型的大小和 SHA-256")
+    model_status.add_argument("--target", help="要校验的模型目录（默认自动查找）")
+    model_status.add_argument("--json", action="store_true", help="输出 JSON")
+    model_status.set_defaults(func=cmd_model)
+    model_download = model_subparsers.add_parser("download", help="从官方仓库安全下载并校验模型")
+    model_download.add_argument(
+        "--target",
+        help="安装目录（默认 $XDG_DATA_HOME/mi-remote-linux/models/paraformer-zh）",
+    )
+    model_download.add_argument("--force", action="store_true", help="覆盖校验失败的现有文件")
+    model_download.set_defaults(func=cmd_model)
 
     args = parser.parse_args()
     if getattr(args, "submit", False) and not getattr(args, "inject", False):

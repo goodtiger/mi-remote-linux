@@ -128,6 +128,7 @@ mi-remote-linux/
 │       ├── action_runner.py  # Wayland/X11 动作执行
 │       ├── desktop.py     # 前台 App、窗口与工作区适配
 │       ├── interactions.py # 浮层和鼠标模式
+│       ├── model_manager.py # 模型发现、完整性校验和原子下载
 │       ├── default_mapping.json # macOS v7 对应默认配置
 │       ├── remote_keys.py # 按键服务生命周期
 │       └── config.py      # 严格 JSON 配置模型
@@ -137,6 +138,7 @@ mi-remote-linux/
 │   ├── test_ble_client.py
 │   ├── test_injector.py
 │   ├── test_main.py
+│   ├── test_model_manager.py
 │   └── test_voice.py
 ├── systemd/
 │   └── mi-remote-voice.service.example

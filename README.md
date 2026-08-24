@@ -58,13 +58,28 @@ python3 -m venv .venv
 为获得更好的中文识别率，下载官方 Sherpa-ONNX Paraformer 模型（约 233 MiB）：
 
 ```bash
-.venv/bin/python scripts/download_paraformer.py
+.venv/bin/mi-remote model download
 ```
+
+下载器固定到经过验证的官方模型版本，完成后校验文件大小和 SHA-256，再原子写入目标
+目录；中断或校验失败不会留下一个看似可用的模型。已有且校验通过的文件会自动跳过；
+已有文件损坏时会拒绝覆盖，确认后可加 `--force`。旧的
+`scripts/download_paraformer.py` 入口仍然兼容。
 
 默认 `--engine auto` 会优先把 Paraformer 模型加载到当前进程并持续复用；没有项目模型时
 也会复用 `$XDG_DATA_HOME/voxtype/models/paraformer-zh`，再回退 Voxtype CLI 或
 faster-whisper。首次使用 faster-whisper 时会下载所选模型，之后均可离线运行。也可通过
 `--paraformer-model-dir` 或 `MI_REMOTE_PARAFORMER_MODEL_DIR` 指定其他模型目录。
+
+随时可以只读校验当前实际使用的模型（也会自动发现 Voxtype 的已有模型）：
+
+```bash
+.venv/bin/mi-remote model status
+.venv/bin/mi-remote model status --json
+.venv/bin/mi-remote model status --target /path/to/paraformer-zh
+```
+
+模型缺失或校验失败时，`model status` 返回退出码 `1`，适合安装器和支持脚本检查。
 
 也可以从项目根目录运行 `./scripts/setup.sh` 完成上述 Python 安装。
 
@@ -417,7 +432,8 @@ systemctl --user stop mi-remote-voice.service
 4. 通用 Linux `mi-remote doctor` 安装与运行诊断（已完成）
 5. `mi-remote test` 交互式真机验收和 JSON 报告（已完成）
 6. 安全的用户级 systemd 服务预览、安装、状态和卸载（已完成）
-7. 后续：模型管理、正式发行包、更多合成器兼容矩阵和原生 GUI
+7. Paraformer 模型状态、SHA-256 校验和安全原子下载（已完成）
+8. 后续：正式发行包、更多合成器兼容矩阵和原生 GUI
 
 ## 参考
 

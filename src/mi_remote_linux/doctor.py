@@ -16,6 +16,7 @@ from typing import Any, Literal
 from .ble_client import find_known_bluez_remote
 from .config import ConfigError, load_config
 from .hid_engine import HIDEngine
+from .model_manager import model_files_present, resolve_model_dir
 
 CheckStatus = Literal["pass", "warn", "fail"]
 _AUTO = object()
@@ -385,9 +386,7 @@ class Doctor:
 
     def _speech_check(self, configured: str | Path | None) -> DoctorCheck:
         model_dir = self._resolve_model_dir(configured)
-        model_ready = (model_dir / "model.int8.onnx").is_file() and (
-            model_dir / "tokens.txt"
-        ).is_file()
+        model_ready = model_files_present(model_dir)
         sherpa_ready = self.find_spec("sherpa_onnx") is not None
         if model_ready and sherpa_ready:
             return DoctorCheck(
@@ -405,7 +404,7 @@ class Doctor:
                 "语音识别",
                 "warn",
                 f"faster-whisper 可用；缺少 {missing}",
-                "运行 scripts/download_paraformer.py 可获得更好的中文识别",
+                "运行 mi-remote model download 可获得更好的中文识别",
             )
         missing = []
         if not model_ready:
@@ -435,26 +434,7 @@ class Doctor:
         )
 
     def _resolve_model_dir(self, configured: str | Path | None) -> Path:
-        if configured is not None:
-            return Path(configured).expanduser()
-        data_home = Path(self.environment.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
-        candidates = [
-            data_home / "mi-remote-linux/models/paraformer-zh",
-            data_home / "voxtype/models/paraformer-zh",
-        ]
-        if self.environment.get("MI_REMOTE_PARAFORMER_MODEL_DIR"):
-            candidates.insert(
-                0, Path(self.environment["MI_REMOTE_PARAFORMER_MODEL_DIR"]).expanduser()
-            )
-        return next(
-            (
-                candidate
-                for candidate in candidates
-                if (candidate / "model.int8.onnx").is_file()
-                and (candidate / "tokens.txt").is_file()
-            ),
-            candidates[0],
-        )
+        return resolve_model_dir(configured, environment=self.environment)
 
     @staticmethod
     def _can_access_uinput() -> bool:

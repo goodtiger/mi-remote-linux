@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +14,7 @@ import numpy as np
 
 from .adpcm import ADPCMDecoder, PCMPostprocessor
 from .atvv import SyncFrame
+from .model_manager import model_files_present, resolve_model_dir
 
 logger = logging.getLogger(__name__)
 
@@ -84,26 +84,11 @@ class VoicePipeline:
         return self.engine
 
     def _paraformer_files_ready(self) -> bool:
-        return (self._paraformer_model_dir / "model.int8.onnx").is_file() and (
-            self._paraformer_model_dir / "tokens.txt"
-        ).is_file()
+        return model_files_present(self._paraformer_model_dir)
 
     @staticmethod
     def _resolve_paraformer_model_dir(configured: str | Path | None) -> Path:
-        if configured is not None:
-            return Path(configured).expanduser()
-        data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
-        env_dir = os.environ.get("MI_REMOTE_PARAFORMER_MODEL_DIR")
-        candidates = [
-            data_home / "mi-remote-linux/models/paraformer-zh",
-            data_home / "voxtype/models/paraformer-zh",
-        ]
-        if env_dir:
-            candidates.insert(0, Path(env_dir).expanduser())
-        for candidate in candidates:
-            if (candidate / "model.int8.onnx").is_file() and (candidate / "tokens.txt").is_file():
-                return candidate
-        return candidates[0]
+        return resolve_model_dir(configured)
 
     def _voxtype_ready(self) -> bool:
         return bool(self._voxtype_path and self._paraformer_files_ready())

@@ -167,3 +167,52 @@ def test_desktop_self_test_cli_outputs_json_without_hardware_lock(monkeypatch, c
     main_module.main()
 
     assert json.loads(capsys.readouterr().out)["suite"] == "desktop"
+
+
+def test_model_status_cli_outputs_json(monkeypatch, capsys):
+    class FakeStatus:
+        ready = True
+
+        @staticmethod
+        def to_json():
+            return '{"ready": true, "target": "/models"}'
+
+    class FakeModelManager:
+        def __init__(self, *, target):
+            assert target == "/models"
+
+        @staticmethod
+        def status():
+            return FakeStatus()
+
+    monkeypatch.setattr(main_module, "ModelManager", FakeModelManager)
+    monkeypatch.setattr(
+        sys, "argv", ["mi-remote", "model", "status", "--target", "/models", "--json"]
+    )
+
+    main_module.main()
+
+    assert json.loads(capsys.readouterr().out)["ready"] is True
+
+
+def test_model_status_cli_returns_nonzero_for_invalid_model(monkeypatch, capsys):
+    class FakeStatus:
+        ready = False
+
+    class FakeModelManager:
+        def __init__(self, *, target):
+            assert target is None
+
+        @staticmethod
+        def status():
+            return FakeStatus()
+
+    monkeypatch.setattr(main_module, "ModelManager", FakeModelManager)
+    monkeypatch.setattr(main_module, "render_model_status", lambda _status: "状态：不可用")
+    monkeypatch.setattr(sys, "argv", ["mi-remote", "model", "status"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_module.main()
+
+    assert exc_info.value.code == 1
+    assert "状态：不可用" in capsys.readouterr().out
