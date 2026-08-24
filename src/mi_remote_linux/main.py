@@ -39,6 +39,13 @@ from .voice import VoicePipeline
 logger = logging.getLogger(__name__)
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("必须大于等于 1")
+    return parsed
+
+
 class VoiceApp:
     """语音输入应用。
 
@@ -409,6 +416,7 @@ async def _run_self_test(args: argparse.Namespace):
                 address=args.address,
                 phrase=args.phrase,
                 timeout=args.timeout,
+                count=args.count,
             )
         )
     if args.suite in {"all", "desktop"}:
@@ -565,7 +573,7 @@ def main() -> None:
     )
     voice_parser.add_argument(
         "--paraformer-threads",
-        type=int,
+        type=_positive_int,
         default=2,
         help="Sherpa-ONNX Paraformer CPU 线程数（默认: 2）",
     )
@@ -700,6 +708,12 @@ def main() -> None:
         "--phrase",
         default="这是小米遥控器语音输入测试",
         help="语音测试时显示的目标语句",
+    )
+    test_parser.add_argument(
+        "--count",
+        type=int,
+        default=1,
+        help="语音测试连续轮数（默认: 1；压力测试建议: 5）",
     )
     test_parser.add_argument(
         "--engine",

@@ -148,6 +148,7 @@ class ATVVClient:
         self._suppress_disconnect_notification = False
         self._restore_device_path: str | None = None
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._generation = 0
 
         self._accumulator = FrameAccumulator()
         self._pending_sync: SyncFrame | None = None
@@ -169,7 +170,9 @@ class ATVVClient:
         handshake_timeout: float = 5.0,
     ) -> bool:
         """连接并等待 ATVV 能力协商完成。"""
-        self._reset_connection_state()
+        if self.client is not None:
+            await self.disconnect(restore_hid=False)
+        generation = self._reset_connection_state()
 
         try:
             device = await asyncio.wait_for(self._find_known_remote(address), timeout=timeout)
@@ -193,7 +196,13 @@ class ATVVClient:
                 self._restore_device_path = known_device_path
 
         logger.info("连接遥控器: %s (%s)", device.name or "?", device.address)
-        client = BleakClient(device, disconnected_callback=self._handle_disconnected)
+        client = BleakClient(
+            device,
+            disconnected_callback=lambda disconnected_client: self._handle_disconnected(
+                disconnected_client,
+                generation,
+            ),
+        )
         self.client = client
 
         try:
@@ -222,8 +231,14 @@ class ATVVClient:
             if self._tx_char is None or audio_char is None or control_char is None:
                 raise RuntimeError("ATVV 特征不完整（需要 TX、audio、control）")
 
-            await client.start_notify(audio_char, self._handle_audio_notify)
-            await client.start_notify(control_char, self._handle_control_notify)
+            await client.start_notify(
+                audio_char,
+                lambda sender, data: self._handle_audio_notify(sender, data, generation),
+            )
+            await client.start_notify(
+                control_char,
+                lambda sender, data: self._handle_control_notify(sender, data, generation),
+            )
             logger.debug("已订阅 ATVV audio/control notify")
             await self._write_command(GET_CAPS_COMMAND, "GET_CAPS")
 
@@ -243,6 +258,9 @@ class ATVVClient:
         """在有界时间内主动断开；最终退出时恢复 BlueZ/HID 系统连接。"""
         client = self.client
         self._suppress_disconnect_notification = True
+        # 先让本代回调失效，避免 disconnect() 或迟到 notify 污染下一次连接。
+        self._generation += 1
+        self._cancel_tasks()
         if client and client.is_connected:
             try:
                 await asyncio.wait_for(client.disconnect(), timeout=timeout)
@@ -261,7 +279,6 @@ class ATVVClient:
                 logger.warning("恢复遥控器 BlueZ/HID 连接总超时")
             except Exception as exc:  # noqa: BLE001 - D-Bus 异常类型随平台变化
                 logger.warning("恢复遥控器 BlueZ/HID 连接失败: %s", exc)
-        self._cancel_tasks()
         self.client = None
         self._connection_active = False
         self._streaming = False
@@ -316,11 +333,23 @@ class ATVVClient:
         finally:
             bus.disconnect()
 
-    async def _write_command(self, payload: bytes, label: str) -> None:
-        if not self.client or self._tx_char is None:
+    async def _write_command(
+        self,
+        payload: bytes,
+        label: str,
+        *,
+        generation: int | None = None,
+    ) -> None:
+        if generation is not None and generation != self._generation:
+            logger.debug("忽略过期 ATVV 命令 %s（generation=%d）", label, generation)
+            return
+
+        client = self.client
+        tx_char = self._tx_char
+        if not client or tx_char is None:
             raise RuntimeError("ATVV TX 特征尚未就绪")
 
-        properties = {str(value).lower() for value in self._tx_char.properties}
+        properties = {str(value).lower() for value in tx_char.properties}
         if "write-without-response" in properties:
             response = False
         elif "write" in properties:
@@ -328,21 +357,30 @@ class ATVVClient:
         else:
             raise RuntimeError("ATVV TX 特征不可写")
 
-        await self.client.write_gatt_char(self._tx_char, payload, response=response)
+        await client.write_gatt_char(tx_char, payload, response=response)
         logger.debug("已发送 %s: %s（response=%s）", label, payload.hex(), response)
 
-    async def _send_mic_open(self) -> None:
+    async def _send_mic_open(self, generation: int | None = None) -> None:
         command = make_mic_open_command(self.capabilities.protocol_version)
-        await self._write_command(command, "MIC_OPEN")
+        await self._write_command(command, "MIC_OPEN", generation=generation)
 
-    async def _send_mic_close(self) -> None:
+    async def _send_mic_close(self, generation: int | None = None) -> None:
         command = make_mic_close_command(
             self.capabilities.protocol_version,
             self.capabilities.session_id,
         )
-        await self._write_command(command, "MIC_CLOSE")
+        await self._write_command(command, "MIC_CLOSE", generation=generation)
 
-    def _handle_disconnected(self, _client: BleakClient) -> None:
+    def _handle_disconnected(
+        self,
+        disconnected_client: BleakClient,
+        generation: int | None = None,
+    ) -> None:
+        if generation is not None and (
+            generation != self._generation or disconnected_client is not self.client
+        ):
+            logger.debug("忽略过期 BLE 断开回调（generation=%d）", generation)
+            return
         log = logger.debug if self._suppress_disconnect_notification else logger.warning
         log("BLE 连接断开")
         should_notify = self._connection_active or self._connected_notified
@@ -359,7 +397,15 @@ class ATVVClient:
         if self._on_disconnected:
             self._on_disconnected()
 
-    def _handle_control_notify(self, _sender: Any, data: bytearray) -> None:
+    def _handle_control_notify(
+        self,
+        _sender: Any,
+        data: bytearray,
+        generation: int | None = None,
+    ) -> None:
+        if generation is not None and generation != self._generation:
+            logger.debug("忽略过期 CONTROL notify（generation=%d）", generation)
+            return
         if not data:
             return
 
@@ -367,19 +413,22 @@ class ATVVClient:
         logger.debug("CONTROL notify: op=0x%02X, data=%s", op, data.hex())
         raw = bytes(data)
         if op == OP_CAPS:
-            self._handle_caps(raw)
+            self._handle_caps(raw, generation)
         elif op == OP_MIC_REQUEST:
-            self._handle_mic_request()
+            self._handle_mic_request(generation)
         elif op == OP_AUDIO_START:
             self._handle_stream_start(raw)
         elif op == OP_SYNC:
             self._handle_sync_frame(raw)
         elif op == OP_AUDIO_STOP:
-            self._handle_stream_stop()
+            self._handle_stream_stop(generation)
         else:
             logger.debug("忽略未知 CONTROL opcode 0x%02X", op)
 
-    def _handle_caps(self, data: bytes) -> None:
+    def _handle_caps(self, data: bytes, generation: int | None = None) -> None:
+        if self._caps_ready:
+            logger.debug("忽略本次连接内重复的 CAPS 帧")
+            return
         capabilities = parse_capabilities(data)
         if capabilities is None:
             logger.error("能力帧无效或不支持 16 kHz codec: %s", data.hex())
@@ -405,12 +454,20 @@ class ATVVClient:
 
         if self._mic_open_pending:
             self._mic_open_pending = False
-            self._schedule(self._send_mic_open())
+            active_generation = self._generation if generation is None else generation
+            self._schedule(
+                self._send_mic_open(active_generation),
+                generation=active_generation,
+            )
 
-    def _handle_mic_request(self) -> None:
+    def _handle_mic_request(self, generation: int | None = None) -> None:
         logger.debug("收到 MIC_REQUEST")
         if self._caps_ready:
-            self._schedule(self._send_mic_open())
+            active_generation = self._generation if generation is None else generation
+            self._schedule(
+                self._send_mic_open(active_generation),
+                generation=active_generation,
+            )
         else:
             self._mic_open_pending = True
             logger.debug("MIC_REQUEST 挂起（caps 未就绪）")
@@ -444,7 +501,7 @@ class ATVVClient:
         self._pending_sync = sync
         logger.debug("同步帧: predictor=%d, step_index=%d", sync.predictor, sync.step_index)
 
-    def _handle_stream_stop(self) -> None:
+    def _handle_stream_stop(self, generation: int | None = None) -> None:
         # MIC_CLOSE 会引来遥控器再回一个 0x00，门控避免来回应答。
         if not self._streaming:
             return
@@ -452,9 +509,21 @@ class ATVVClient:
         logger.info("音频流结束")
         if self._on_voice_stop:
             self._on_voice_stop()
-        self._schedule(self._send_mic_close())
+        active_generation = self._generation if generation is None else generation
+        self._schedule(
+            self._send_mic_close(active_generation),
+            generation=active_generation,
+        )
 
-    def _handle_audio_notify(self, _sender: Any, data: bytearray) -> None:
+    def _handle_audio_notify(
+        self,
+        _sender: Any,
+        data: bytearray,
+        generation: int | None = None,
+    ) -> None:
+        if generation is not None and generation != self._generation:
+            logger.debug("忽略过期 AUDIO notify（generation=%d）", generation)
+            return
         if not self._streaming or self._waiting_for_resync or not data:
             return
 
@@ -519,15 +588,32 @@ class ATVVClient:
         self._pending_sync = None
         return sync
 
-    def _schedule(self, coroutine: Coroutine[Any, Any, Any]) -> None:
+    def _schedule(
+        self,
+        coroutine: Coroutine[Any, Any, Any],
+        *,
+        generation: int | None = None,
+    ) -> None:
+        async def run_if_current() -> None:
+            if generation is not None and generation != self._generation:
+                coroutine.close()
+                return
+            await coroutine
+
         try:
-            task = asyncio.create_task(coroutine)
+            task = asyncio.create_task(run_if_current())
         except RuntimeError:
             coroutine.close()
             logger.exception("无法调度 ATVV 命令")
             return
         self._tasks.add(task)
-        task.add_done_callback(self._task_done)
+
+        def finish(completed: asyncio.Task[Any]) -> None:
+            # task 可能在第一次运行前就被取消，此时包装协程尚未来得及关闭原协程。
+            coroutine.close()
+            self._task_done(completed)
+
+        task.add_done_callback(finish)
 
     def _task_done(self, task: asyncio.Task[Any]) -> None:
         self._tasks.discard(task)
@@ -543,7 +629,8 @@ class ATVVClient:
             task.cancel()
         self._tasks.clear()
 
-    def _reset_connection_state(self) -> None:
+    def _reset_connection_state(self) -> int:
+        self._generation += 1
         self._cancel_tasks()
         self.capabilities = ATVVCapabilities()
         self._tx_char = None
@@ -561,3 +648,4 @@ class ATVVClient:
         self._probe_buffer.clear()
         self._waiting_for_resync = False
         self._accumulator = FrameAccumulator()
+        return self._generation

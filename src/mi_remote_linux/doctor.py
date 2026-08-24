@@ -283,10 +283,14 @@ class Doctor:
                 self.environment.get("HYPRLAND_INSTANCE_SIGNATURE") and self.which("hyprctl")
             )
             missing = [] if self.which("wl-copy") else ["wl-copy"]
-            if not native_hyprland and not self.which("wtype"):
-                missing.append("wtype")
+            key_backend = next(
+                (name for name in ("wtype", "ydotool") if self.which(name)),
+                None,
+            )
+            if not native_hyprland and not key_backend:
+                missing.append("wtype 或 ydotool")
             if not missing:
-                backend = "Hyprland 原生按键" if native_hyprland else "wtype"
+                backend = "Hyprland 原生按键" if native_hyprland else str(key_backend)
                 return DoctorCheck(
                     "injection", "焦点文字输入", "pass", f"wayland：wl-copy + {backend}"
                 )
@@ -295,7 +299,7 @@ class Doctor:
                 "焦点文字输入",
                 "fail",
                 f"缺少：{', '.join(missing)}",
-                "Wayland 安装 wl-clipboard 和 wtype；Hyprland 也可使用 hyprctl 原生按键",
+                "Wayland 安装 wl-clipboard；wlroots 使用 wtype，其他合成器可配置 ydotool/ydotoold",
             )
         requirements = {
             "x11": ("xclip", "xdotool"),

@@ -158,6 +158,7 @@ class LinuxActionRunner:
             session=session if session != "none" else "auto",
             environment=self.environment,
             wtype=self.wtype,
+            ydotool=self.ydotool,
             xdotool=self.xdotool,
             desktop=self.desktop,
         )
@@ -193,20 +194,6 @@ class LinuxActionRunner:
             await self.key_stroke(action.key, action.mods)
             return
         if action.type == "text":
-            if self.session == "wayland" and not self.wtype and self.ydotool:
-                if not self.injector.wl_copy:
-                    raise ActionError("wl-copy is required for Wayland text actions")
-                await self.injector._run(
-                    self.injector.wl_copy,
-                    "--type",
-                    "text/plain;charset=utf-8",
-                    input_data=str(action.value or "").encode("utf-8"),
-                    clipboard_owner=True,
-                )
-                if self.injector.paste_delay:
-                    await asyncio.sleep(self.injector.paste_delay)
-                await self.key_stroke("insert", ("shift",))
-                return
             try:
                 await self.injector.inject(str(action.value or ""))
             except TextInjectionError as exc:

@@ -55,6 +55,63 @@ async def test_hyprland_active_app_and_windows_are_parsed():
     ]
 
 
+def add_process(proc_root, pid, name, children=()):
+    process = proc_root / str(pid)
+    task = process / "task" / str(pid)
+    task.mkdir(parents=True)
+    (process / "comm").write_text(name)
+    (process / "cmdline").write_bytes(name.encode() + b"\0")
+    (task / "children").write_text(" ".join(str(child) for child in children))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", ["pi", "codex", "claude"])
+async def test_terminal_foreground_cli_selects_its_profile(tmp_path, profile):
+    add_process(tmp_path, 100, "foot", [101])
+    add_process(tmp_path, 101, "bash", [102])
+    add_process(tmp_path, 102, profile)
+    desktop = FakeDesktop(
+        {
+            ("hyprctl", "-j", "activewindow"): json.dumps(
+                {"class": "foot", "title": "project", "pid": 100}
+            )
+        }
+    )
+    desktop.proc_root = tmp_path
+
+    assert await desktop.active_application() == profile
+
+
+@pytest.mark.asyncio
+async def test_terminal_shell_without_supported_cli_keeps_terminal_profile(tmp_path):
+    add_process(tmp_path, 100, "foot", [101])
+    add_process(tmp_path, 101, "bash")
+    desktop = FakeDesktop(
+        {
+            ("hyprctl", "-j", "activewindow"): json.dumps(
+                {"class": "foot", "title": "shell", "pid": 100}
+            )
+        }
+    )
+    desktop.proc_root = tmp_path
+
+    assert await desktop.active_application() == "foot"
+
+
+@pytest.mark.asyncio
+async def test_stale_proc_entry_does_not_break_active_app_detection(tmp_path):
+    desktop = FakeDesktop(
+        {
+            ("hyprctl", "-j", "activewindow"): json.dumps(
+                {"class": "foot", "title": "shell", "pid": 999}
+            )
+        }
+    )
+    desktop.proc_root = tmp_path
+
+    assert await desktop.active_application() == "foot"
+
+
 @pytest.mark.asyncio
 async def test_application_tracker_only_emits_changes():
     class ActiveDesktop:

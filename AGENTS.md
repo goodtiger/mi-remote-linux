@@ -30,7 +30,9 @@ tap/hold/double、OK+方向手势、层、宏及 Wayland/X11 动作后端也已�
 
 真机结果：BlueZ 已连接设备发现、ATVV v1 CAPS、120 字节裸帧、三次连续录音、
 ADPCM→PCM、tiny Whisper 下载/转写、MIC_CLOSE 和 Ctrl+C 后恢复 HID 连接均通过。
-本固件未提供 126 字节带头帧，五次连续会话压力测试仍可作为后续稳定性检查。
+v0.4.1 又通过三轮强制断开后的自动重连，每轮只协商一次 CAPS；同一 BLE 连接上的五次
+人工连续语音验收全部通过，相似度 85%–100%、推理延迟 87–99 ms，session ID 连续递增且
+没有断流或状态污染。本固件未提供 126 字节带头帧。
 
 **硬件信息**：
 - 遥控器：小米蓝牙遥控器 2 Pro，型号 RC003-MS
@@ -99,7 +101,7 @@ OK+方向手势与 momentary layer 兼容能力，但默认 RC003 配置使用�
 - `evdev` — Linux 输入设备读取
 - `numpy` — ADPCM 解码加速（可选）
 - `Sherpa-ONNX Paraformer`（中文优先）、Voxtype CLI 或 `faster-whisper` — 本地语音转写
-- `ydotool` — Wayland 兼容按键模拟（Hyprland 用户）
+- `wtype` 或 `ydotool/ydotoold` — Wayland 兼容按键模拟（Hyprland 优先使用原生 IPC）
 
 ## 文件结构
 
@@ -119,7 +121,7 @@ mi-remote-linux/
 │       ├── voice.py       # 语音转写管道
 │       ├── injector.py    # Wayland 当前焦点文本注入
 │       ├── doctor.py      # 只读安装、权限、桌面与模型诊断
-│       ├── self_test.py   # 13 键、单次语音与桌面交互验收
+│       ├── self_test.py   # 13 键、连续语音与桌面交互验收
 │       ├── service_manager.py # 用户级 systemd 服务安全管理
 │       ├── hid_guard.py   # RC003 语音 HID 键过滤与其他键 uinput 转发
 │       ├── runtime.py     # 语音进程单实例锁

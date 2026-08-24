@@ -11,7 +11,7 @@ GitHub Release 是当前唯一正式发行渠道；暂不上传 PyPI。只有稳
 
    ```bash
    .venv/bin/python -m pip install -e ".[dev,release]"
-   .venv/bin/python scripts/check_release.py v0.4.0
+   .venv/bin/python scripts/check_release.py v0.4.1
    .venv/bin/ruff format --check .
    .venv/bin/ruff check .
    .venv/bin/pytest -q
@@ -26,8 +26,8 @@ GitHub Release 是当前唯一正式发行渠道；暂不上传 PyPI。只有稳
 确认发布后创建并推送不可变的 annotated tag：
 
 ```bash
-git tag -a v0.4.0 -m "MiRemote Linux v0.4.0"
-git push origin v0.4.0
+git tag -a v0.4.1 -m "MiRemote Linux v0.4.1"
+git push origin v0.4.1
 ```
 
 `.github/workflows/release.yml` 会再次校验 tag 与包版本、执行 lint 和全部测试、构建并

@@ -176,3 +176,98 @@ async def test_disconnect_timeout_does_not_block_cleanup():
     await client.disconnect(timeout=0.001)
 
     assert client.client is None
+
+
+def test_stale_callbacks_cannot_mutate_a_new_connection():
+    disconnected = []
+    client, frames, starts = make_client()
+    client._on_disconnected = lambda: disconnected.append(True)
+    old_generation = client._reset_connection_state()
+    old_client = FakeBleakClient()
+    client.client = old_client
+
+    new_generation = client._reset_connection_state()
+    new_client = FakeBleakClient()
+    client.client = new_client
+    client._connection_active = True
+    client.capabilities = ATVVCapabilities(frame_size=4)
+
+    client._handle_control_notify(None, bytearray([0x04, 0x00, 0x02, 0xA5]), old_generation)
+    client._handle_audio_notify(None, bytearray([1, 2, 3, 4]), old_generation)
+    client._handle_disconnected(old_client, old_generation)
+
+    assert new_generation != old_generation
+    assert client._connection_active is True
+    assert client._streaming is False
+    assert starts == []
+    assert frames == []
+    assert disconnected == []
+
+
+def test_current_generation_callbacks_still_work():
+    client, frames, starts = make_client()
+    generation = client._reset_connection_state()
+    client.capabilities = ATVVCapabilities(frame_size=4)
+
+    client._handle_control_notify(None, bytearray([0x04, 0x00, 0x02, 0xA5]), generation)
+    client._handle_audio_notify(None, bytearray([1, 2, 3, 4]), generation)
+
+    assert starts == [True]
+    assert frames == [(bytes([1, 2, 3, 4]), None)]
+
+
+def test_duplicate_caps_is_ignored_within_one_connection():
+    connected = []
+    client = ATVVClient(on_connected=lambda: connected.append(True))
+    first = bytes([0x0B, 0x01, 0x00, 0x02, 0x7F, 0x00, 0x78])
+    duplicate = bytes([0x0B, 0x01, 0x00, 0x02, 0x7F, 0x01, 0x00])
+
+    client._handle_caps(first)
+    client._handle_caps(duplicate)
+
+    assert connected == [True]
+    assert client.capabilities.frame_size == 0x78
+
+
+def test_many_reconnect_generations_reject_every_old_callback():
+    client, _, starts = make_client()
+    stale_callbacks = []
+
+    for _ in range(100):
+        generation = client._reset_connection_state()
+        stale_callbacks.append(
+            lambda generation=generation: client._handle_control_notify(
+                None,
+                bytearray([0x04, 0x00, 0x02, 0xA5]),
+                generation,
+            )
+        )
+
+    current_generation = client._reset_connection_state()
+    client.capabilities = ATVVCapabilities(frame_size=4)
+    for callback in stale_callbacks:
+        callback()
+
+    assert starts == []
+    client._handle_control_notify(
+        None,
+        bytearray([0x04, 0x00, 0x02, 0xA5]),
+        current_generation,
+    )
+    assert starts == [True]
+
+
+@pytest.mark.asyncio
+async def test_scheduled_command_is_discarded_after_generation_changes():
+    client = ATVVClient()
+    fake_client = FakeBleakClient()
+    client.client = fake_client
+    client._tx_char = FakeCharacteristic(["write-without-response"])
+    generation = client._generation
+
+    client._schedule(client._send_mic_open(generation), generation=generation)
+    client._reset_connection_state()
+    await asyncio.sleep(0)
+
+    assert fake_client.writes == []
+    assert client._tasks == set()

@@ -116,3 +116,18 @@ async def test_doctor_reports_actionable_failures_without_mutating_system(tmp_pa
     assert checks["injection"].status == "fail"
     assert checks["uinput"].status == "warn"
     assert checks["speech"].status == "fail"
+
+
+def test_generic_wayland_accepts_ydotool_for_clipboard_paste_shortcut():
+    tools = {"wl-copy": "/usr/bin/wl-copy", "ydotool": "/usr/bin/ydotool"}
+    doctor = Doctor(
+        environment={"WAYLAND_DISPLAY": "wayland-1", "XDG_CURRENT_DESKTOP": "GNOME"},
+        which=lambda name: tools.get(name),
+    )
+
+    injection = doctor._injection_check("wayland")
+    key_actions = doctor._key_actions_check("wayland")
+
+    assert injection.status == "pass"
+    assert injection.detail == "wayland：wl-copy + ydotool"
+    assert key_actions.status == "pass"

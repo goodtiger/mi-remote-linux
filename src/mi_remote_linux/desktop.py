@@ -15,8 +15,21 @@ import re
 import shutil
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+TERMINAL_APPLICATIONS = {
+    "alacritty",
+    "com.mitchellh.ghostty",
+    "foot",
+    "ghostty",
+    "kitty",
+    "konsole",
+    "org.wezfurlong.wezterm",
+    "wezterm",
+}
+TERMINAL_PROFILES = {"claude", "codex", "pi"}
 
 
 class DesktopActionError(RuntimeError):
@@ -42,6 +55,7 @@ class LinuxDesktop:
         gtk_launch: str | None = None,
         notify_send: str | None = None,
         hypr_lua: bool | None = None,
+        proc_root: Path | str = Path("/proc"),
     ):
         self.environment = dict(os.environ if environment is None else environment)
         self.hyprctl = shutil.which("hyprctl") if hyprctl is None else hyprctl
@@ -50,6 +64,7 @@ class LinuxDesktop:
         self.gtk_launch = shutil.which("gtk-launch") if gtk_launch is None else gtk_launch
         self.notify_send = shutil.which("notify-send") if notify_send is None else notify_send
         self._hypr_lua = hypr_lua
+        self.proc_root = Path(proc_root)
         self._desktop_workspace: str | None = None
         if self.environment.get("HYPRLAND_INSTANCE_SIGNATURE") and self.hyprctl:
             self.backend = "hyprland"
@@ -63,15 +78,25 @@ class LinuxDesktop:
     async def active_application(self) -> str | None:
         if self.backend == "hyprland":
             data = await self._json(self.hyprctl, "-j", "activewindow")
-            return self._app_identity(data)
+            return self._foreground_identity(data)
         if self.backend == "sway":
             tree = await self._json(self.swaymsg, "-t", "get_tree", "-r")
             node = self._focused_sway_node(tree)
-            return self._app_identity(node or {})
+            return self._foreground_identity(node or {})
         if self.backend == "x11":
             window_id = (await self._capture(self.xdotool, "getactivewindow")).strip()
             title = (await self._capture(self.xdotool, "getwindowname", window_id)).strip()
             app = (await self._capture(self.xdotool, "getwindowclassname", window_id)).strip()
+            if app.casefold() in TERMINAL_APPLICATIONS:
+                try:
+                    pid_text = (
+                        await self._capture(self.xdotool, "getwindowpid", window_id)
+                    ).strip()
+                    foreground = self._terminal_profile(int(pid_text))
+                    if foreground:
+                        return foreground
+                except (DesktopActionError, TypeError, ValueError):
+                    pass
             return app or title or None
         return None
 
@@ -300,8 +325,7 @@ class LinuxDesktop:
             raise DesktopActionError("native key input is only available on Hyprland")
 
         native_modifiers = " ".join(
-            "SUPER" if modifier.lower() == "logo" else modifier.upper()
-            for modifier in modifiers
+            "SUPER" if modifier.lower() == "logo" else modifier.upper() for modifier in modifiers
         )
         if not await self._uses_hypr_lua():
             await self._run(
@@ -444,6 +468,57 @@ class LinuxDesktop:
         if not identity:
             identity = str(data.get("name") or data.get("title") or "")
         return identity or None
+
+    def _foreground_identity(self, data: dict) -> str | None:
+        identity = self._app_identity(data)
+        app_names = {
+            str(value).casefold()
+            for value in (data.get("app_id"), data.get("class"), data.get("initialClass"))
+            if value
+        }
+        if app_names & TERMINAL_APPLICATIONS:
+            try:
+                foreground = self._terminal_profile(int(data.get("pid")))
+            except (TypeError, ValueError):
+                foreground = None
+            if foreground:
+                return foreground
+        return identity
+
+    def _terminal_profile(self, terminal_pid: int) -> str | None:
+        """Find a supported interactive CLI below a terminal process in /proc."""
+        pending = [terminal_pid]
+        visited: set[int] = set()
+        while pending and len(visited) < 256:
+            pid = pending.pop(0)
+            if pid in visited:
+                continue
+            visited.add(pid)
+            process_dir = self.proc_root / str(pid)
+            if pid != terminal_pid:
+                name = self._process_name(process_dir)
+                if name in TERMINAL_PROFILES:
+                    return name
+            try:
+                children = (process_dir / "task" / str(pid) / "children").read_text().split()
+            except (OSError, UnicodeError):
+                continue
+            pending.extend(int(child) for child in children if child.isdecimal())
+        return None
+
+    @staticmethod
+    def _process_name(process_dir: Path) -> str:
+        try:
+            comm = (process_dir / "comm").read_text().strip().casefold()
+        except (OSError, UnicodeError):
+            comm = ""
+        if comm in TERMINAL_PROFILES:
+            return comm
+        try:
+            argv0 = (process_dir / "cmdline").read_bytes().split(b"\0", 1)[0]
+            return Path(os.fsdecode(argv0)).name.casefold()
+        except (OSError, UnicodeError):
+            return comm
 
     @classmethod
     def _focused_sway_node(cls, node: dict) -> dict | None:

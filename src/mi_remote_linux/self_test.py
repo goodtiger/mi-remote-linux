@@ -172,7 +172,7 @@ class KeySelfTest:
 
 
 class VoiceSelfTest:
-    """Capture and transcribe exactly one ATVV utterance."""
+    """Capture and transcribe one or more ATVV utterances on one connection."""
 
     def __init__(
         self,
@@ -196,7 +196,10 @@ class VoiceSelfTest:
         address: str | None = None,
         phrase: str = "这是小米遥控器语音输入测试",
         timeout: float = 30.0,
+        count: int = 1,
     ) -> SelfTestReport:
+        if count < 1:
+            raise ValueError("voice self-test count must be at least 1")
         if not await asyncio.to_thread(self.pipeline.load_model):
             return SelfTestReport(
                 "voice",
@@ -204,6 +207,7 @@ class VoiceSelfTest:
             )
         self._started = asyncio.Event()
         self._stopped = asyncio.Event()
+        self._samples = None
         hid = self.hid_factory(lambda _event: None)
         client = self.client_factory(
             on_audio_frame=self.pipeline.on_audio_frame,
@@ -224,70 +228,78 @@ class VoiceSelfTest:
                         ),
                     ),
                 )
-            if not await client.connect(address):
+            connected = await client.connect(address)
+            if not connected:
+                self.prompt("首次 BLE 连接未完成，等待 BlueZ 稳定后重试一次")
+                await asyncio.sleep(2)
+                connected = await client.connect(address)
+            if not connected:
                 return SelfTestReport(
                     "voice",
-                    (SelfTestCheck("ble", "ATVV 连接", "fail", "无法连接遥控器"),),
+                    (SelfTestCheck("ble", "ATVV 连接", "fail", "两次尝试均无法连接遥控器"),),
                 )
-            self.prompt(f"按住语音键并说：{phrase}；说完后松开")
-            try:
-                await asyncio.wait_for(self._started.wait(), timeout=timeout)
-                await asyncio.wait_for(self._stopped.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
-                return SelfTestReport(
-                    "voice",
-                    (SelfTestCheck("capture", "语音采集", "fail", "等待语音开始或结束超时"),),
-                )
-            if self._samples is None:
-                return SelfTestReport(
-                    "voice",
-                    (SelfTestCheck("capture", "语音采集", "fail", "录音过短或没有音频帧"),),
-                )
-            started = time.perf_counter()
-            text = await asyncio.to_thread(self.pipeline.transcribe, self._samples)
-            latency_ms = (time.perf_counter() - started) * 1000
-            duration = len(self._samples) / self.pipeline.sample_rate
-            rms = float(np.sqrt(np.mean(self._samples.astype(np.float64) ** 2)))
-            peak = int(np.max(np.abs(self._samples.astype(np.int32))))
-            if not text:
-                return SelfTestReport(
-                    "voice",
-                    (
+            checks: list[SelfTestCheck] = []
+            for index in range(count):
+                if index:
+                    self._started = asyncio.Event()
+                    self._stopped = asyncio.Event()
+                    self._samples = None
+                suffix = f"（{index + 1}/{count}）" if count > 1 else ""
+                self.prompt(f"{suffix}按住语音键并说：{phrase}；说完后松开")
+                try:
+                    await asyncio.wait_for(self._started.wait(), timeout=timeout)
+                    await asyncio.wait_for(self._stopped.wait(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    checks.append(
                         SelfTestCheck(
-                            "voice",
-                            "语音识别",
+                            f"capture_{index + 1}",
+                            f"语音采集 {index + 1}/{count}",
                             "fail",
-                            "未识别到文本",
-                            {"duration_s": round(duration, 2), "rms": round(rms, 1), "peak": peak},
-                        ),
-                    ),
-                )
-            similarity = self._similarity(phrase, text)
-            status: TestStatus = "pass" if similarity >= 0.6 else "warn"
-            return SelfTestReport(
-                "voice",
-                (
-                    SelfTestCheck(
-                        "voice",
-                        "语音识别",
-                        status,
-                        f"{text} · 相似度 {similarity:.0%} · {latency_ms:.0f} ms",
-                        {
-                            "expected": phrase,
-                            "text": text,
-                            "similarity": round(similarity, 3),
-                            "latency_ms": round(latency_ms, 1),
-                            "duration_s": round(duration, 2),
-                            "rms": round(rms, 1),
-                            "peak": peak,
-                            "engine": self.pipeline.active_engine,
-                        },
-                    ),
-                ),
-            )
+                            "等待语音开始或结束超时",
+                        )
+                    )
+                    break
+                check = await self._transcribe_capture(phrase, index=index, count=count)
+                checks.append(check)
+                if check.status == "fail":
+                    break
+            return SelfTestReport("voice", tuple(checks))
         finally:
             await client.disconnect()
             await hid.stop()
+
+    async def _transcribe_capture(self, phrase: str, *, index: int, count: int) -> SelfTestCheck:
+        label = "语音识别" if count == 1 else f"语音识别 {index + 1}/{count}"
+        key = "voice" if count == 1 else f"voice_{index + 1}"
+        if self._samples is None:
+            return SelfTestCheck(key, label, "fail", "录音过短或没有音频帧")
+        started = time.perf_counter()
+        text = await asyncio.to_thread(self.pipeline.transcribe, self._samples)
+        latency_ms = (time.perf_counter() - started) * 1000
+        duration = len(self._samples) / self.pipeline.sample_rate
+        rms = float(np.sqrt(np.mean(self._samples.astype(np.float64) ** 2)))
+        peak = int(np.max(np.abs(self._samples.astype(np.int32))))
+        metrics = {
+            "expected": phrase,
+            "text": text,
+            "latency_ms": round(latency_ms, 1),
+            "duration_s": round(duration, 2),
+            "rms": round(rms, 1),
+            "peak": peak,
+            "engine": self.pipeline.active_engine,
+        }
+        if not text:
+            return SelfTestCheck(key, label, "fail", "未识别到文本", metrics)
+        similarity = self._similarity(phrase, text)
+        metrics["similarity"] = round(similarity, 3)
+        status: TestStatus = "pass" if similarity >= 0.6 else "warn"
+        return SelfTestCheck(
+            key,
+            label,
+            status,
+            f"{text} · 相似度 {similarity:.0%} · {latency_ms:.0f} ms",
+            metrics,
+        )
 
     def _on_voice_start(self) -> None:
         self.pipeline.on_voice_start()

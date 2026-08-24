@@ -4,8 +4,21 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-24
+
+### Added
+
+- 自动读取终端进程树，在 foot/Ghostty 等窗口内区分 Pi、Codex 和 Claude CLI；Pi 默认
+  profile 提供四方向、确认和逐字删除。
+- `mi-remote test voice --count N` 可在同一 BLE 连接上执行连续语音压力测试并逐轮报告
+  相似度、延迟、时长、RMS 和峰值。
+- 通用 Wayland 文字注入支持 `ydotool/ydotoold`，与 Hyprland 原生输入和 `wtype`
+  共同构成跨合成器回退链。
+
 ### Fixed
 
+- 为每次 BLE 连接分配独立代次，过期的断开、控制、音频通知和 MIC 命令不再污染重连
+  后的新状态；同代重复 CAPS 被安全忽略。
 - Hyprland 优先使用原生焦点按键事件，修复 foot 等终端中 `wtype` 成功返回但方向键、
   返回键和语音粘贴未生效的问题，并保留 `wtype`/`ydotool` 回退。
 - 终端自动粘贴与 Omarchy 策略保持一致，改用 `Shift+Insert`。
@@ -33,5 +46,6 @@
 - 服务安装/卸载默认只预览，必须显式使用 `--apply`。
 - 模型和发行包在写入或安装前执行完整性校验。
 
-[Unreleased]: https://github.com/goodtiger/mi-remote-linux/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/goodtiger/mi-remote-linux/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/goodtiger/mi-remote-linux/releases/tag/v0.4.1
 [0.4.0]: https://github.com/goodtiger/mi-remote-linux/releases/tag/v0.4.0

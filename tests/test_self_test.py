@@ -1,6 +1,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import numpy as np
 import pytest
@@ -144,3 +145,121 @@ async def test_voice_self_test_captures_one_utterance_and_reports_metrics():
     assert report.checks[0].metrics["similarity"] == 1.0
     assert report.checks[0].metrics["duration_s"] == 1.0
     assert clients[0].disconnected is True
+
+
+@pytest.mark.asyncio
+async def test_voice_self_test_reuses_connection_for_multiple_utterances():
+    class FakePipeline:
+        sample_rate = 16000
+        active_engine = "fake-paraformer"
+
+        def load_model(self):
+            return True
+
+        def on_voice_start(self):
+            pass
+
+        def on_audio_frame(self, _frame, _sync):
+            pass
+
+        def finish_capture(self):
+            return np.full(8000, 500, dtype=np.int16)
+
+        def transcribe(self, _samples):
+            return "连续语音测试"
+
+    class FakeClient:
+        def __init__(self, **callbacks):
+            self.callbacks = callbacks
+            self.connect_calls = 0
+            self.disconnect_calls = 0
+
+        async def connect(self, _address):
+            self.connect_calls += 1
+            return True
+
+        async def disconnect(self):
+            self.disconnect_calls += 1
+
+    client = None
+
+    def client_factory(**callbacks):
+        nonlocal client
+        client = FakeClient(**callbacks)
+        return client
+
+    def prompt(_text):
+        client.callbacks["on_voice_start"]()
+        client.callbacks["on_voice_stop"]()
+
+    report = await VoiceSelfTest(
+        FakePipeline(),
+        client_factory=client_factory,
+        hid_factory=lambda callback: FakeHID(callback),
+        prompt=prompt,
+    ).run(phrase="连续语音测试", count=5, timeout=0.2)
+
+    assert report.exit_code == 0
+    assert len(report.checks) == 5
+    assert all(check.status == "pass" for check in report.checks)
+    assert client.connect_calls == 1
+    assert client.disconnect_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_voice_self_test_retries_transient_bluez_connection_race(monkeypatch):
+    class FakePipeline:
+        sample_rate = 16000
+        active_engine = "fake"
+
+        def load_model(self):
+            return True
+
+        def on_voice_start(self):
+            pass
+
+        def on_audio_frame(self, _frame, _sync):
+            pass
+
+        def finish_capture(self):
+            return np.ones(1600, dtype=np.int16)
+
+        def transcribe(self, _samples):
+            return "测试"
+
+    class FlakyClient:
+        def __init__(self, **callbacks):
+            self.callbacks = callbacks
+            self.connect_calls = 0
+
+        async def connect(self, _address):
+            self.connect_calls += 1
+            return self.connect_calls == 2
+
+        async def disconnect(self):
+            pass
+
+    client = None
+
+    def client_factory(**callbacks):
+        nonlocal client
+        client = FlakyClient(**callbacks)
+        return client
+
+    def prompt(text):
+        if "按住语音键" in text:
+            client.callbacks["on_voice_start"]()
+            client.callbacks["on_voice_stop"]()
+
+    sleep = AsyncMock()
+    monkeypatch.setattr("mi_remote_linux.self_test.asyncio.sleep", sleep)
+    report = await VoiceSelfTest(
+        FakePipeline(),
+        client_factory=client_factory,
+        hid_factory=lambda callback: FakeHID(callback),
+        prompt=prompt,
+    ).run(phrase="测试", timeout=0.2)
+
+    assert report.exit_code == 0
+    assert client.connect_calls == 2
+    sleep.assert_awaited_once_with(2)

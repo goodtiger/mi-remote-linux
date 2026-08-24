@@ -15,6 +15,8 @@ def test_example_config_loads_all_remote_keys():
     assert "ghostty" in config.profiles
     assert config.profile_apps["chrome"]
     assert config.profiles["ghostty"]["back"].tap.key == "backspace"
+    assert config.profiles["pi"]["left"].tap.key == "left_arrow"
+    assert config.profiles["pi"]["back"].tap.key == "backspace"
     assert config.profiles["codex"]["back"].tap.key == "backspace"
     assert config.profiles["claude"]["back"].tap.key == "backspace"
 

@@ -117,6 +117,7 @@
   },
   "profile_apps": {
     "ghostty": ["com.mitchellh.ghostty", "ghostty", "foot", "kitty", "alacritty", "konsole", "wezterm"],
+    "pi": ["pi"],
     "codex": ["com.openai.codex", "codex"],
     "chatgpt": ["com.openai.chat", "chatgpt"],
     "claude": ["com.anthropic.claude", "claude"],
@@ -157,6 +158,15 @@
         "tap": {"type": "key_stroke", "key": "backspace"},
         "hold": {"type": "key_stroke", "key": "u", "mods": ["ctrl"]}
       },
+      "home": {"layers": {"2": {"type": "focus_input"}}}
+    },
+    "pi": {
+      "left": {"tap": {"type": "key_stroke", "key": "left_arrow"}},
+      "right": {"tap": {"type": "key_stroke", "key": "right_arrow"}},
+      "up": {"tap": {"type": "key_stroke", "key": "up_arrow"}},
+      "down": {"tap": {"type": "key_stroke", "key": "down_arrow"}},
+      "ok": {"tap": {"type": "key_stroke", "key": "return"}},
+      "back": {"tap": {"type": "key_stroke", "key": "backspace"}},
       "home": {"layers": {"2": {"type": "focus_input"}}}
     },
     "codex": {

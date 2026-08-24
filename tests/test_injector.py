@@ -16,6 +16,8 @@ class RecordingInjector(LinuxTextInjector):
         submit: bool = False,
         terminal: bool = False,
         desktop=None,
+        wtype: str = "wtype",
+        ydotool: str = "",
     ):
         super().__init__(
             session=session,
@@ -23,7 +25,8 @@ class RecordingInjector(LinuxTextInjector):
             submit=submit,
             environment={},
             wl_copy="wl-copy",
-            wtype="wtype",
+            wtype=wtype,
+            ydotool=ydotool,
             xclip="xclip",
             xdotool="xdotool",
             hyprctl="",
@@ -59,10 +62,10 @@ def test_auto_detects_wayland_before_x11():
 
 
 def test_reports_missing_dependencies_for_each_session():
-    wayland = LinuxTextInjector(session="wayland", environment={}, wl_copy="", wtype="")
+    wayland = LinuxTextInjector(session="wayland", environment={}, wl_copy="", wtype="", ydotool="")
     x11 = LinuxTextInjector(session="x11", environment={}, xclip="", xdotool="")
 
-    assert wayland.missing_dependencies() == ["wl-copy", "wtype"]
+    assert wayland.missing_dependencies() == ["wl-copy", "wtype or ydotool"]
     assert x11.missing_dependencies() == ["xclip", "xdotool"]
 
 
@@ -121,6 +124,36 @@ async def test_submit_is_explicit_and_happens_after_paste():
     await injector.inject("发送这句话")
 
     assert injector.calls[-1] == (("wtype", "-k", "Return"), None)
+
+
+@pytest.mark.asyncio
+async def test_wayland_text_and_submit_fall_back_to_ydotool():
+    injector = RecordingInjector(wtype="", ydotool="ydotool", submit=True)
+
+    await injector.inject("通用 Wayland")
+
+    assert injector.calls == [
+        (("wl-copy", "--type", "text/plain;charset=utf-8"), "通用 Wayland".encode()),
+        (("ydotool", "key", "29:1", "47:1", "47:0", "29:0"), None),
+        (("ydotool", "key", "28:1", "28:0"), None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_terminal_paste_uses_shift_insert_through_ydotool():
+    injector = RecordingInjector(
+        paste_shortcut="auto",
+        terminal=True,
+        wtype="",
+        ydotool="ydotool",
+    )
+
+    await injector.inject("终端")
+
+    assert injector.calls[-1] == (
+        ("ydotool", "key", "42:1", "110:1", "110:0", "42:0"),
+        None,
+    )
 
 
 @pytest.mark.asyncio

@@ -58,13 +58,13 @@ sudo apt install xclip xdotool
 
 ```bash
 curl -fL -o /tmp/install-mi-remote.py \
-  https://github.com/goodtiger/mi-remote-linux/releases/download/v0.4.0/install-mi-remote.py
+  https://github.com/goodtiger/mi-remote-linux/releases/download/v0.4.1/install-mi-remote.py
 
 # 先预览，不下载、不写入
-python3 /tmp/install-mi-remote.py --version v0.4.0 --dry-run
+python3 /tmp/install-mi-remote.py --version v0.4.1 --dry-run
 
 # 安装完整语音依赖；升级时改成新的版本号并重新运行
-python3 /tmp/install-mi-remote.py --version v0.4.0
+python3 /tmp/install-mi-remote.py --version v0.4.1
 ```
 
 确保 `~/.local/bin` 在 `PATH` 后，运行 `mi-remote doctor` 检查桌面依赖和权限。只需要
@@ -186,8 +186,9 @@ stdout 只输出识别文本，状态和日志写到 stderr，便于交给其他
 # 依次提示按下全部 13 键；只读取事件，不执行映射动作
 .venv/bin/mi-remote test keys
 
-# 采集并转写一句话，报告识别文本、相似度、延迟、时长、RMS 和峰值
+# 采集并转写一句话，或在同一 BLE 连接上连续压力测试五次
 .venv/bin/mi-remote test voice
+.venv/bin/mi-remote test voice --count 5
 
 # 安全检查通知、窗口查询和音频状态；默认不向焦点写入
 .venv/bin/mi-remote test desktop
@@ -289,7 +290,8 @@ Brave、Firefox、微信、VLC、mpv、PowerPoint/Impress、Zoom、腾讯会议�
 只能启动一个 `mi-remote voice` 实例，避免两个进程争抢 BLE 语音通道。
 
 `--inject` 会自动根据 `WAYLAND_DISPLAY`/`DISPLAY` 选择图形后端：Hyprland 使用
-`wl-copy + hyprctl` 原生按键并以 `wtype` 回退，其他 Wayland 使用 `wl-copy + wtype`，
+`wl-copy + hyprctl` 原生按键并以 `wtype`/`ydotool` 回退，其他 Wayland 使用
+`wl-copy + wtype`，或在合成器不支持虚拟键盘协议时使用 `wl-copy + ydotool/ydotoold`；
 X11 使用 `xclip + xdotool`。终端窗口使用 `Shift+Insert`，其他应用
 使用 `Ctrl+V`；无法自动识别终端时，可加
 `--paste-shortcut ctrl-shift-v` 或 `--paste-shortcut shift-insert` 手动指定。这个实现不依赖
@@ -299,9 +301,10 @@ X11 使用 `xclip + xdotool`。终端窗口使用 `Shift+Insert`，其他应用
 粘贴失败时文本仍保留在剪贴板和 stdout。默认不会按 Enter。
 
 兼容范围：蓝牙语音链路适用于使用 BlueZ 的 Linux；X11 注入适用于常见 X11 桌面；
-Wayland 注入要求合成器提供原生按键 IPC（已适配 Hyprland）或支持 `wtype` 使用的
-虚拟键盘协议。部分 GNOME/KDE Wayland 会限制该协议，此时仍可使用 stdout/文件，
-按键动作可安装并配置 `ydotool/ydotoold` 作为 uinput 回退，焦点文字仍可切换到 X11 会话。
+Wayland 注入要求合成器提供原生按键 IPC（已适配 Hyprland）、支持 `wtype` 使用的
+虚拟键盘协议，或允许已配置的 `ydotoold` 通过 uinput 注入。部分 GNOME/KDE Wayland
+会限制虚拟键盘协议，可使用 `wl-copy + ydotool/ydotoold`；若系统策略也禁止 uinput，
+仍可使用 stdout/文件或切换到 X11 会话。
 Linux 没有一个不经桌面授权、适用于所有 Wayland 合成器的全局
 焦点输入接口。
 
@@ -447,9 +450,10 @@ systemctl --user stop mi-remote-voice.service
 ```
 
 当前自动化覆盖 ATVV 字段解析、握手音频状态、裸帧/带头帧、错位重同步、ADPCM
-跨批状态、PCM 后处理、常驻 Paraformer、静音保护、术语纠正、断线重连、单实例、RC003
+跨批状态、PCM 后处理、常驻 Paraformer、静音保护、术语纠正、BLE 重连代次隔离、单实例、RC003
 设备级语音键隔离、13 键 HID 映射、tap/hold/double、手势、层、宏、前台 App profile、
-窗口/工作区动作、浮层和 Wayland/X11 动作生成。实机验收步骤见 [AGENTS.md](AGENTS.md)。
+终端前台 CLI 识别、窗口/工作区动作、浮层和 Wayland/X11 动作生成。实机验收步骤见
+[AGENTS.md](AGENTS.md)。
 
 ## 开发路线
 

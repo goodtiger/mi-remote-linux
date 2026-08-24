@@ -25,6 +25,13 @@ TERMINAL_CLASSES = {
     "wezterm",
     "xterm",
 }
+YDOTOOL_KEYS = {
+    "ctrl": 29,
+    "shift": 42,
+    "v": 47,
+    "insert": 110,
+    "return": 28,
+}
 
 
 class TextInjectionError(RuntimeError):
@@ -47,6 +54,7 @@ class LinuxTextInjector:
         environment: Mapping[str, str] | None = None,
         wl_copy: str | None = None,
         wtype: str | None = None,
+        ydotool: str | None = None,
         xclip: str | None = None,
         xdotool: str | None = None,
         hyprctl: str | None = None,
@@ -64,6 +72,7 @@ class LinuxTextInjector:
         self.submit = submit
         self.wl_copy = shutil.which("wl-copy") if wl_copy is None else wl_copy
         self.wtype = shutil.which("wtype") if wtype is None else wtype
+        self.ydotool = shutil.which("ydotool") if ydotool is None else ydotool
         self.xclip = shutil.which("xclip") if xclip is None else xclip
         self.xdotool = shutil.which("xdotool") if xdotool is None else xdotool
         self.hyprctl = shutil.which("hyprctl") if hyprctl is None else hyprctl
@@ -87,8 +96,12 @@ class LinuxTextInjector:
         """返回当前图形会话缺少的命令或环境。"""
         if self.session == "wayland":
             missing = [] if self.wl_copy else ["wl-copy"]
-            if getattr(self.desktop, "backend", None) != "hyprland" and not self.wtype:
-                missing.append("wtype")
+            if (
+                getattr(self.desktop, "backend", None) != "hyprland"
+                and not self.wtype
+                and not self.ydotool
+            ):
+                missing.append("wtype or ydotool")
             return missing
         if self.session == "x11":
             return [
@@ -185,35 +198,43 @@ class LinuxTextInjector:
                     return
                 except DesktopActionError:
                     pass
-            if not self.wtype:
-                raise TextInjectionError("Hyprland 原生按键失败且缺少 wtype 回退")
-            commands = {
-                "ctrl-v": (self.wtype, "-M", "ctrl", "-k", "v", "-m", "ctrl"),
-                "ctrl-shift-v": (
-                    self.wtype,
-                    "-M",
-                    "ctrl",
-                    "-M",
-                    "shift",
-                    "-k",
-                    "v",
-                    "-m",
-                    "shift",
-                    "-m",
-                    "ctrl",
-                ),
-                "shift-insert": (
-                    self.wtype,
-                    "-M",
-                    "shift",
-                    "-k",
-                    "Insert",
-                    "-m",
-                    "shift",
-                ),
-            }
-            await self._run(*commands[shortcut])
-            return
+            if self.wtype:
+                commands = {
+                    "ctrl-v": (self.wtype, "-M", "ctrl", "-k", "v", "-m", "ctrl"),
+                    "ctrl-shift-v": (
+                        self.wtype,
+                        "-M",
+                        "ctrl",
+                        "-M",
+                        "shift",
+                        "-k",
+                        "v",
+                        "-m",
+                        "shift",
+                        "-m",
+                        "ctrl",
+                    ),
+                    "shift-insert": (
+                        self.wtype,
+                        "-M",
+                        "shift",
+                        "-k",
+                        "Insert",
+                        "-m",
+                        "shift",
+                    ),
+                }
+                await self._run(*commands[shortcut])
+                return
+            if self.ydotool:
+                chords = {
+                    "ctrl-v": ("ctrl", "v"),
+                    "ctrl-shift-v": ("ctrl", "shift", "v"),
+                    "shift-insert": ("shift", "insert"),
+                }
+                await self._send_ydotool_chord(*chords[shortcut])
+                return
+            raise TextInjectionError("缺少可用的 Wayland 按键后端（wtype 或 ydotool）")
 
         assert self.xdotool is not None
         keys = {
@@ -231,12 +252,21 @@ class LinuxTextInjector:
                     return
                 except DesktopActionError:
                     pass
-            if not self.wtype:
-                raise TextInjectionError("Hyprland 原生按键失败且缺少 wtype 回退")
-            await self._run(self.wtype, "-k", "Return")
+            if self.wtype:
+                await self._run(self.wtype, "-k", "Return")
+            elif self.ydotool:
+                await self._send_ydotool_chord("return")
+            else:
+                raise TextInjectionError("缺少可用的 Wayland 按键后端（wtype 或 ydotool）")
         else:
             assert self.xdotool is not None
             await self._run(self.xdotool, "key", "--clearmodifiers", "Return")
+
+    async def _send_ydotool_chord(self, *keys: str) -> None:
+        assert self.ydotool is not None
+        codes = [YDOTOOL_KEYS[key] for key in keys]
+        sequence = [*(f"{code}:1" for code in codes), *(f"{code}:0" for code in reversed(codes))]
+        await self._run(self.ydotool, "key", *sequence)
 
     async def _capture(self, *command: str) -> str:
         try:
