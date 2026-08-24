@@ -219,7 +219,7 @@ class VoiceApp:
         try:
             await asyncio.wait_for(self._stop_event.wait(), timeout=timeout)
             return True
-        except TimeoutError:
+        except asyncio.TimeoutError:
             return False
 
     async def _wait_for_stop_or_disconnect(self) -> bool:

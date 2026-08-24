@@ -179,7 +179,7 @@ class ATVVClient:
         try:
             try:
                 await asyncio.wait_for(client.connect(), timeout=timeout)
-            except TimeoutError as exc:
+            except asyncio.TimeoutError as exc:
                 raise RuntimeError(f"BLE 连接超时（{timeout:.1f}s）") from exc
             self._connection_active = True
             logger.info("BLE 连接成功")
@@ -209,7 +209,7 @@ class ATVVClient:
 
             try:
                 await asyncio.wait_for(self._caps_event.wait(), timeout=handshake_timeout)
-            except TimeoutError as exc:
+            except asyncio.TimeoutError as exc:
                 raise RuntimeError("ATVV 能力协商超时") from exc
             if not self._caps_ready:
                 raise RuntimeError("ATVV 能力无效或不支持 16 kHz codec")
@@ -227,7 +227,7 @@ class ATVVClient:
             try:
                 await asyncio.wait_for(client.disconnect(), timeout=timeout)
                 logger.info("已断开 ATVV 客户端")
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 logger.warning("ATVV 客户端断开超时（%.1fs），继续清理", timeout)
             except Exception as exc:  # noqa: BLE001 - bleak 后端异常类型随平台变化
                 logger.warning("ATVV 客户端断开失败，继续清理: %s", exc)
@@ -237,7 +237,7 @@ class ATVVClient:
                     self._restore_bluez_connection(self._restore_device_path),
                     timeout=10.0,
                 )
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 logger.warning("恢复遥控器 BlueZ/HID 连接总超时")
             except Exception as exc:  # noqa: BLE001 - D-Bus 异常类型随平台变化
                 logger.warning("恢复遥控器 BlueZ/HID 连接失败: %s", exc)
@@ -298,7 +298,7 @@ class ATVVClient:
                     ),
                     timeout=8.0,
                 )
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 logger.warning("恢复遥控器系统连接超时；按任意键可唤醒并由 BlueZ 重连")
                 return
             if reply.message_type == MessageType.ERROR and reply.error_name not in {
