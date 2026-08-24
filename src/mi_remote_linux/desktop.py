@@ -288,6 +288,45 @@ class LinuxDesktop:
             f"hl.dsp.cursor.move({{ x = {x}, y = {y} }})",
         )
 
+    async def key_stroke(
+        self,
+        key: str,
+        modifiers: tuple[str, ...] = (),
+        *,
+        hold_delay: float = 0.05,
+    ) -> None:
+        """Send a focused key stroke through Hyprland's native dispatcher."""
+        if self.backend != "hyprland":
+            raise DesktopActionError("native key input is only available on Hyprland")
+
+        native_modifiers = " ".join(
+            "SUPER" if modifier.lower() == "logo" else modifier.upper()
+            for modifier in modifiers
+        )
+        if not await self._uses_hypr_lua():
+            await self._run(
+                self.hyprctl,
+                "dispatch",
+                "sendshortcut",
+                f"{native_modifiers}, {key}, activewindow",
+            )
+            return
+
+        def expression(state: str) -> str:
+            return (
+                "hl.dsp.send_key_state({"
+                f" mods = {json.dumps(native_modifiers)}, key = {json.dumps(key)},"
+                f' state = "{state}", window = "activewindow"'
+                " })"
+            )
+
+        await self._run(self.hyprctl, "dispatch", expression("down"))
+        try:
+            if hold_delay:
+                await asyncio.sleep(hold_delay)
+        finally:
+            await self._run(self.hyprctl, "dispatch", expression("up"))
+
     async def mouse_click(self, button: str) -> None:
         if self.backend != "hyprland":
             raise DesktopActionError("native mouse clicks are only available on Hyprland")

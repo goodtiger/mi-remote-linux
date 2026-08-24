@@ -278,8 +278,26 @@ class Doctor:
         )
 
     def _injection_check(self, session: str | None) -> DoctorCheck:
+        if session == "wayland":
+            native_hyprland = bool(
+                self.environment.get("HYPRLAND_INSTANCE_SIGNATURE") and self.which("hyprctl")
+            )
+            missing = [] if self.which("wl-copy") else ["wl-copy"]
+            if not native_hyprland and not self.which("wtype"):
+                missing.append("wtype")
+            if not missing:
+                backend = "Hyprland 原生按键" if native_hyprland else "wtype"
+                return DoctorCheck(
+                    "injection", "焦点文字输入", "pass", f"wayland：wl-copy + {backend}"
+                )
+            return DoctorCheck(
+                "injection",
+                "焦点文字输入",
+                "fail",
+                f"缺少：{', '.join(missing)}",
+                "Wayland 安装 wl-clipboard 和 wtype；Hyprland 也可使用 hyprctl 原生按键",
+            )
         requirements = {
-            "wayland": ("wl-copy", "wtype"),
             "x11": ("xclip", "xdotool"),
         }
         names = requirements.get(session)
@@ -306,7 +324,10 @@ class Doctor:
 
     def _key_actions_check(self, session: str | None) -> DoctorCheck:
         if session == "wayland":
-            available = [name for name in ("wtype", "ydotool") if self.which(name)]
+            available = []
+            if self.environment.get("HYPRLAND_INSTANCE_SIGNATURE") and self.which("hyprctl"):
+                available.append("Hyprland 原生按键")
+            available.extend(name for name in ("wtype", "ydotool") if self.which(name))
             if available:
                 return DoctorCheck(
                     "key_actions", "虚拟按键", "pass", "Wayland · " + " / ".join(available)

@@ -4,6 +4,7 @@ import pytest
 
 from mi_remote_linux.action_runner import ActionError, LinuxActionRunner
 from mi_remote_linux.config import Action
+from mi_remote_linux.desktop import DesktopActionError
 
 
 @pytest.mark.asyncio
@@ -30,6 +31,42 @@ async def test_wayland_shortcut_builds_balanced_modifier_command():
         "-m",
         "ctrl",
     )
+
+
+@pytest.mark.asyncio
+async def test_hyprland_shortcut_prefers_native_compositor_input():
+    desktop = AsyncMock()
+    desktop.backend = "hyprland"
+    runner = LinuxActionRunner(
+        session="wayland",
+        environment={"WAYLAND_DISPLAY": "wayland-1"},
+        wtype="/usr/bin/wtype",
+        desktop=desktop,
+    )
+    runner._run_command = AsyncMock()
+
+    await runner.key_stroke("left", ("ctrl",))
+
+    desktop.key_stroke.assert_awaited_once_with("Left", ("ctrl",))
+    runner._run_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_shortcut_falls_back_to_wtype_on_ipc_failure():
+    desktop = AsyncMock()
+    desktop.backend = "hyprland"
+    desktop.key_stroke.side_effect = DesktopActionError("native input unavailable")
+    runner = LinuxActionRunner(
+        session="wayland",
+        environment={"WAYLAND_DISPLAY": "wayland-1"},
+        wtype="wtype",
+        desktop=desktop,
+    )
+    runner._run_command = AsyncMock()
+
+    await runner.key_stroke("up")
+
+    runner._run_command.assert_awaited_once_with("wtype", "-k", "Up")
 
 
 @pytest.mark.asyncio

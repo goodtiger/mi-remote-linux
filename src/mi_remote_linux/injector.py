@@ -8,6 +8,8 @@ import os
 import shutil
 from collections.abc import Mapping
 
+from .desktop import DesktopActionError, LinuxDesktop
+
 PASTE_SHORTCUTS = ("auto", "ctrl-v", "ctrl-shift-v", "shift-insert")
 TERMINAL_CLASSES = {
     "alacritty",
@@ -49,6 +51,7 @@ class LinuxTextInjector:
         xdotool: str | None = None,
         hyprctl: str | None = None,
         paste_delay: float = 0.08,
+        desktop: LinuxDesktop | None = None,
     ):
         if session not in {"auto", "wayland", "x11"}:
             raise ValueError(f"不支持的图形会话: {session}")
@@ -65,6 +68,11 @@ class LinuxTextInjector:
         self.xdotool = shutil.which("xdotool") if xdotool is None else xdotool
         self.hyprctl = shutil.which("hyprctl") if hyprctl is None else hyprctl
         self.paste_delay = paste_delay
+        self.desktop = desktop or LinuxDesktop(
+            environment=self.environment,
+            hyprctl=self.hyprctl,
+            xdotool=self.xdotool,
+        )
 
     def _detect_session(self, requested: str) -> str | None:
         if requested != "auto":
@@ -78,11 +86,10 @@ class LinuxTextInjector:
     def missing_dependencies(self) -> list[str]:
         """返回当前图形会话缺少的命令或环境。"""
         if self.session == "wayland":
-            return [
-                name
-                for name, path in (("wl-copy", self.wl_copy), ("wtype", self.wtype))
-                if not path
-            ]
+            missing = [] if self.wl_copy else ["wl-copy"]
+            if getattr(self.desktop, "backend", None) != "hyprland" and not self.wtype:
+                missing.append("wtype")
+            return missing
         if self.session == "x11":
             return [
                 name
@@ -136,7 +143,7 @@ class LinuxTextInjector:
         if self.paste_shortcut != "auto":
             return self.paste_shortcut
         if await self._active_window_is_terminal():
-            return "ctrl-shift-v"
+            return "shift-insert"
         return "ctrl-v"
 
     async def _active_window_is_terminal(self) -> bool:
@@ -166,7 +173,20 @@ class LinuxTextInjector:
 
     async def _send_shortcut(self, shortcut: str) -> None:
         if self.session == "wayland":
-            assert self.wtype is not None
+            native_shortcuts = {
+                "ctrl-v": ("v", ("ctrl",)),
+                "ctrl-shift-v": ("v", ("ctrl", "shift")),
+                "shift-insert": ("Insert", ("shift",)),
+            }
+            if getattr(self.desktop, "backend", None) == "hyprland":
+                key, modifiers = native_shortcuts[shortcut]
+                try:
+                    await self.desktop.key_stroke(key, modifiers)
+                    return
+                except DesktopActionError:
+                    pass
+            if not self.wtype:
+                raise TextInjectionError("Hyprland 原生按键失败且缺少 wtype 回退")
             commands = {
                 "ctrl-v": (self.wtype, "-M", "ctrl", "-k", "v", "-m", "ctrl"),
                 "ctrl-shift-v": (
@@ -205,7 +225,14 @@ class LinuxTextInjector:
 
     async def _send_return(self) -> None:
         if self.session == "wayland":
-            assert self.wtype is not None
+            if getattr(self.desktop, "backend", None) == "hyprland":
+                try:
+                    await self.desktop.key_stroke("Return")
+                    return
+                except DesktopActionError:
+                    pass
+            if not self.wtype:
+                raise TextInjectionError("Hyprland 原生按键失败且缺少 wtype 回退")
             await self._run(self.wtype, "-k", "Return")
         else:
             assert self.xdotool is not None

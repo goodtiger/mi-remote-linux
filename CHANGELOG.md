@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Hyprland 优先使用原生焦点按键事件，修复 foot 等终端中 `wtype` 成功返回但方向键、
+  返回键和语音粘贴未生效的问题，并保留 `wtype`/`ydotool` 回退。
+- 终端自动粘贴与 Omarchy 策略保持一致，改用 `Shift+Insert`。
+
 ## [0.4.0] - 2026-08-24
 
 首个功能完整的 Linux 预览版本。

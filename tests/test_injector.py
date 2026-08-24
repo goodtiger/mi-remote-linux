@@ -1,5 +1,7 @@
 """Linux 焦点文本注入测试。"""
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from mi_remote_linux.injector import LinuxTextInjector, TextInjectionError
@@ -13,6 +15,7 @@ class RecordingInjector(LinuxTextInjector):
         paste_shortcut: str = "ctrl-v",
         submit: bool = False,
         terminal: bool = False,
+        desktop=None,
     ):
         super().__init__(
             session=session,
@@ -25,6 +28,7 @@ class RecordingInjector(LinuxTextInjector):
             xdotool="xdotool",
             hyprctl="",
             paste_delay=0,
+            desktop=desktop,
         )
         self.calls = []
         self.error_on_call = None
@@ -87,15 +91,27 @@ async def test_x11_copies_utf8_then_pastes():
 
 
 @pytest.mark.asyncio
-async def test_auto_uses_ctrl_shift_v_for_terminal():
+async def test_auto_uses_shift_insert_for_terminal():
     injector = RecordingInjector(paste_shortcut="auto", terminal=True)
 
     await injector.inject("终端输入")
 
     assert injector.calls[-1] == (
-        ("wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"),
+        ("wtype", "-M", "shift", "-k", "Insert", "-m", "shift"),
         None,
     )
+
+
+@pytest.mark.asyncio
+async def test_hyprland_paste_prefers_native_compositor_input():
+    desktop = AsyncMock()
+    desktop.backend = "hyprland"
+    injector = RecordingInjector(desktop=desktop)
+
+    await injector.inject("原生粘贴")
+
+    desktop.key_stroke.assert_awaited_once_with("v", ("ctrl",))
+    assert len(injector.calls) == 1
 
 
 @pytest.mark.asyncio

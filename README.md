@@ -16,7 +16,8 @@
 - 13 键全部可配置，支持短按、长按、双击、OK+方向手势、层和宏
 - 对应 macOS v7 默认心智模型、App 控制模式和前台应用 profile
 - 窗口选择器、任务视图、App 轮盘、系统菜单、教程与鼠标模式
-- Wayland 使用 `wtype`，也可回退 `ydotool`；X11 使用 `xdotool`
+- Hyprland 优先使用合成器原生按键；其他 Wayland 使用 `wtype` 并可回退
+  `ydotool`；X11 使用 `xdotool`
 - 音量优先使用 `wpctl`（回退 `pactl`）并显示音量进度；播放控制可选用 `playerctl`
 - 只打开 RC003 自己的输入节点，不修改桌面快捷键或物理键盘行为
 - 兼容 ATVV v1 与旧 codec 字段布局
@@ -155,7 +156,7 @@ quit
 ```
 
 stdout 只输出识别文本，状态和日志写到 stderr，便于交给其他程序消费。
-自动焦点输入在普通窗口使用 `Ctrl+V`，识别到终端窗口时使用 `Ctrl+Shift+V`；特殊应用
+自动焦点输入在普通窗口使用 `Ctrl+V`，识别到终端窗口时使用 `Shift+Insert`；特殊应用
 可通过 `--paste-shortcut` 明确改为 `ctrl-v`、`ctrl-shift-v` 或 `shift-insert`。
 
 ### 安装诊断
@@ -287,8 +288,9 @@ Brave、Firefox、微信、VLC、mpv、PowerPoint/Impress、Zoom、腾讯会议�
 配对设备和广播中自动识别 RC003。遥控器休眠或临时断开后，进程会指数退避重连；同一用户
 只能启动一个 `mi-remote voice` 实例，避免两个进程争抢 BLE 语音通道。
 
-`--inject` 会自动根据 `WAYLAND_DISPLAY`/`DISPLAY` 选择图形后端：Wayland 使用
-`wl-copy + wtype`，X11 使用 `xclip + xdotool`。终端窗口使用 `Shift+Insert`，其他应用
+`--inject` 会自动根据 `WAYLAND_DISPLAY`/`DISPLAY` 选择图形后端：Hyprland 使用
+`wl-copy + hyprctl` 原生按键并以 `wtype` 回退，其他 Wayland 使用 `wl-copy + wtype`，
+X11 使用 `xclip + xdotool`。终端窗口使用 `Shift+Insert`，其他应用
 使用 `Ctrl+V`；无法自动识别终端时，可加
 `--paste-shortcut ctrl-shift-v` 或 `--paste-shortcut shift-insert` 手动指定。这个实现不依赖
 桌面环境自己的快捷键，也不会修改 Hyprland、GNOME、KDE 等桌面配置。
@@ -297,8 +299,8 @@ Brave、Firefox、微信、VLC、mpv、PowerPoint/Impress、Zoom、腾讯会议�
 粘贴失败时文本仍保留在剪贴板和 stdout。默认不会按 Enter。
 
 兼容范围：蓝牙语音链路适用于使用 BlueZ 的 Linux；X11 注入适用于常见 X11 桌面；
-Wayland 注入要求合成器支持 `wtype` 使用的虚拟键盘协议（Hyprland、Sway 等 wlroots
-合成器通常支持）。部分 GNOME/KDE Wayland 会限制该协议，此时仍可使用 stdout/文件，
+Wayland 注入要求合成器提供原生按键 IPC（已适配 Hyprland）或支持 `wtype` 使用的
+虚拟键盘协议。部分 GNOME/KDE Wayland 会限制该协议，此时仍可使用 stdout/文件，
 按键动作可安装并配置 `ydotool/ydotoold` 作为 uinput 回退，焦点文字仍可切换到 X11 会话。
 Linux 没有一个不经桌面授权、适用于所有 Wayland 合成器的全局
 焦点输入接口。

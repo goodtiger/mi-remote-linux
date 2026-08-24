@@ -150,21 +150,26 @@ class LinuxActionRunner:
         self.wpctl = shutil.which("wpctl") if wpctl is None else wpctl
         self.pactl = shutil.which("pactl") if pactl is None else pactl
         self.playerctl = shutil.which("playerctl") if playerctl is None else playerctl
+        self.desktop = desktop or LinuxDesktop(
+            environment=self.environment,
+            xdotool=self.xdotool,
+        )
         self.injector = injector or LinuxTextInjector(
             session=session if session != "none" else "auto",
             environment=self.environment,
             wtype=self.wtype,
             xdotool=self.xdotool,
-        )
-        self.desktop = desktop or LinuxDesktop(
-            environment=self.environment,
-            xdotool=self.xdotool,
+            desktop=self.desktop,
         )
         self.overlay_handler = overlay_handler
         self.mouse_mode_handler = mouse_mode_handler
 
     def missing_dependencies(self) -> list[str]:
-        if self.session == "wayland" and not (self.wtype or self.ydotool):
+        if (
+            self.session == "wayland"
+            and getattr(self.desktop, "backend", None) != "hyprland"
+            and not (self.wtype or self.ydotool)
+        ):
             return ["wtype or ydotool"]
         if self.session == "x11" and not self.xdotool:
             return ["xdotool"]
@@ -267,11 +272,18 @@ class LinuxActionRunner:
             raise ActionError("duplicate modifiers are not allowed")
         if self.session == "wayland":
             translated = [MODIFIERS[item] for item in modifiers]
+            native_key = WAYLAND_KEYS.get(key, key)
+            if getattr(self.desktop, "backend", None) == "hyprland":
+                try:
+                    await self.desktop.key_stroke(native_key, tuple(translated))
+                    return
+                except DesktopActionError as exc:
+                    logger.debug("Hyprland native key input failed; using fallback: %s", exc)
             if self.wtype:
                 command = [self.wtype]
                 for modifier in translated:
                     command.extend(("-M", modifier))
-                command.extend(("-k", WAYLAND_KEYS.get(key, key)))
+                command.extend(("-k", native_key))
                 for modifier in reversed(translated):
                     command.extend(("-m", modifier))
                 await self._run_command(*command)

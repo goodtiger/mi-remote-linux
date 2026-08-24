@@ -1,4 +1,5 @@
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -125,6 +126,51 @@ async def test_hyprland_mouse_click_supplies_required_lua_mods_field():
             ),
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_hyprland_key_stroke_holds_then_releases(monkeypatch):
+    desktop = FakeDesktop({})
+    desktop._hypr_lua = True
+    sleep = AsyncMock()
+    monkeypatch.setattr("mi_remote_linux.desktop.asyncio.sleep", sleep)
+
+    await desktop.key_stroke("Left", ("ctrl", "shift"))
+
+    assert desktop.commands[-2:] == [
+        (
+            "hyprctl",
+            "dispatch",
+            (
+                'hl.dsp.send_key_state({ mods = "CTRL SHIFT", key = "Left", '
+                'state = "down", window = "activewindow" })'
+            ),
+        ),
+        (
+            "hyprctl",
+            "dispatch",
+            (
+                'hl.dsp.send_key_state({ mods = "CTRL SHIFT", key = "Left", '
+                'state = "up", window = "activewindow" })'
+            ),
+        ),
+    ]
+    sleep.assert_awaited_once_with(0.05)
+
+
+@pytest.mark.asyncio
+async def test_legacy_hyprland_key_stroke_uses_sendshortcut():
+    desktop = FakeDesktop({})
+    desktop._hypr_lua = False
+
+    await desktop.key_stroke("Insert", ("shift",))
+
+    assert desktop.commands[-1] == (
+        "hyprctl",
+        "dispatch",
+        "sendshortcut",
+        "SHIFT, Insert, activewindow",
+    )
 
 
 @pytest.mark.asyncio
