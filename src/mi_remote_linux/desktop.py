@@ -297,8 +297,8 @@ class LinuxDesktop:
                 await self._run(
                     self.hyprctl,
                     "dispatch",
-                    f'hl.dsp.send_key_state({{ key = "{code}", state = "{state}", '
-                    'window = "activewindow" }})',
+                    f'hl.dsp.send_key_state({{ mods = "", key = "{code}", state = "{state}", '
+                    'window = "activewindow" })',
                 )
         else:
             await self._run(self.hyprctl, "dispatch", "sendshortcut", f", {code}, activewindow")
@@ -315,19 +315,28 @@ class LinuxDesktop:
         if active:
             await self.focus_window(active)
 
-    async def notify(self, title: str, body: str, *, urgency: str = "normal") -> None:
+    async def notify(
+        self,
+        title: str,
+        body: str,
+        *,
+        urgency: str = "normal",
+        value: int | None = None,
+    ) -> None:
         if not self.notify_send:
             logger.info("%s: %s", title, body)
             return
-        await self._run(
+        command = [
             self.notify_send,
             "-u",
             urgency,
             "-h",
             "string:x-canonical-private-synchronous:mi-remote-linux",
-            title,
-            body,
-        )
+        ]
+        if value is not None:
+            command.extend(("-h", f"int:value:{max(0, min(100, value))}"))
+        command.extend((title, body))
+        await self._run(*command)
 
     async def _json(self, *command: str | None):
         raw = await self._capture(*(item for item in command if item is not None))

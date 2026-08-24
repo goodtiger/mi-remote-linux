@@ -81,6 +81,53 @@ async def test_hyprland_mouse_move_passes_one_dispatcher_argument():
 
 
 @pytest.mark.asyncio
+async def test_notification_can_include_a_progress_value():
+    desktop = FakeDesktop({})
+    desktop.notify_send = "notify-send"
+
+    await desktop.notify("MiRemote", "音量 50%", value=50)
+
+    assert desktop.commands[-1] == (
+        "notify-send",
+        "-u",
+        "normal",
+        "-h",
+        "string:x-canonical-private-synchronous:mi-remote-linux",
+        "-h",
+        "int:value:50",
+        "MiRemote",
+        "音量 50%",
+    )
+
+
+@pytest.mark.asyncio
+async def test_hyprland_mouse_click_supplies_required_lua_mods_field():
+    desktop = FakeDesktop({})
+    desktop._hypr_lua = True
+
+    await desktop.mouse_click("right")
+
+    assert desktop.commands[-2:] == [
+        (
+            "hyprctl",
+            "dispatch",
+            (
+                'hl.dsp.send_key_state({ mods = "", key = "mouse:273", state = "down", '
+                'window = "activewindow" })'
+            ),
+        ),
+        (
+            "hyprctl",
+            "dispatch",
+            (
+                'hl.dsp.send_key_state({ mods = "", key = "mouse:273", state = "up", '
+                'window = "activewindow" })'
+            ),
+        ),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_hyprland_lua_dispatch_is_used_on_055_and_newer():
     desktop = FakeDesktop({("hyprctl", "-j", "cursorpos"): '{"x": 100, "y": 200}'})
     desktop._hypr_lua = True

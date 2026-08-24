@@ -14,6 +14,7 @@
 - 对应 macOS v7 默认心智模型、App 控制模式和前台应用 profile
 - 窗口选择器、任务视图、App 轮盘、系统菜单、教程与鼠标模式
 - Wayland 使用 `wtype`，也可回退 `ydotool`；X11 使用 `xdotool`
+- 音量优先使用 `wpctl`（回退 `pactl`）并显示音量进度；播放控制可选用 `playerctl`
 - 只打开 RC003 自己的输入节点，不修改桌面快捷键或物理键盘行为
 - 兼容 ATVV v1 与旧 codec 字段布局
 - 兼容 120 字节裸音频帧和 126 字节带同步头音频帧
@@ -146,6 +147,9 @@ macOS MiRemote v7 默认心智模型：
 | 菜单 | 窗口选择器 | 系统功能菜单 |
 | TV | 进入/退出 App 控制模式（层2） | App 轮盘 |
 | 音量± | 系统音量 | — |
+
+音量控制直接调用 PipeWire/PulseAudio，不依赖桌面快捷键，因此在不同 Linux 桌面下均可用；
+通知会同时显示当前百分比和静音状态。
 
 App 控制模式与 macOS 一致：上下选择、左右和音量±切 Agent/标签、OK 批准、返回 Esc、
 菜单 Shift+Tab、Home Ctrl+C、电源恢复当前窗口输入焦点、TV 退出。层空闲 20 秒自动退出，

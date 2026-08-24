@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 import pytest
 
@@ -128,3 +128,56 @@ async def test_advanced_actions_delegate_to_desktop_and_overlay():
     desktop.open_app.assert_awaited_once_with("org.mozilla.firefox")
     assert overlay.await_args_list[0].args == ("window_picker",)
     assert overlay.await_args_list[1].args == ("mission_control",)
+
+
+@pytest.mark.asyncio
+async def test_pipewire_volume_actions_do_not_depend_on_desktop_keybindings():
+    desktop = AsyncMock()
+    runner = LinuxActionRunner(
+        session="wayland",
+        environment={"WAYLAND_DISPLAY": "x"},
+        wtype="wtype",
+        wpctl="wpctl",
+        pactl="",
+        playerctl="",
+        desktop=desktop,
+    )
+    runner._run_command = AsyncMock()
+    runner._capture_command = AsyncMock(
+        side_effect=["Volume: 0.55", "Volume: 0.50", "Volume: 0.50 [MUTED]"]
+    )
+
+    await runner.system("volume_up")
+    await runner.system("volume_down")
+    await runner.system("mute")
+
+    assert runner._run_command.await_args_list == [
+        call("wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"),
+        call("wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SINK@", "5%-"),
+        call("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"),
+    ]
+    assert desktop.notify.await_args_list == [
+        call("MiRemote", "音量 55%", value=55),
+        call("MiRemote", "音量 50%", value=50),
+        call("MiRemote", "已静音", value=50),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_volume_change_reports_level_when_sink_is_muted():
+    desktop = AsyncMock()
+    runner = LinuxActionRunner(
+        session="wayland",
+        environment={"WAYLAND_DISPLAY": "x"},
+        wtype="wtype",
+        wpctl="wpctl",
+        pactl="",
+        playerctl="",
+        desktop=desktop,
+    )
+    runner._run_command = AsyncMock()
+    runner._capture_command = AsyncMock(return_value="Volume: 0.45 [MUTED]")
+
+    await runner.system("volume_down")
+
+    desktop.notify.assert_awaited_once_with("MiRemote", "音量 45%（静音中）", value=45)

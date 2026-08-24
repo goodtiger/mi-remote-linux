@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 from collections.abc import Awaitable, Callable, Mapping
 
@@ -125,6 +126,9 @@ class LinuxActionRunner:
         wtype: str | None = None,
         ydotool: str | None = None,
         xdotool: str | None = None,
+        wpctl: str | None = None,
+        pactl: str | None = None,
+        playerctl: str | None = None,
         injector: LinuxTextInjector | None = None,
         desktop: LinuxDesktop | None = None,
         overlay_handler: Callable[[str], Awaitable[None]] | None = None,
@@ -143,6 +147,9 @@ class LinuxActionRunner:
         self.wtype = shutil.which("wtype") if wtype is None else wtype
         self.ydotool = shutil.which("ydotool") if ydotool is None else ydotool
         self.xdotool = shutil.which("xdotool") if xdotool is None else xdotool
+        self.wpctl = shutil.which("wpctl") if wpctl is None else wpctl
+        self.pactl = shutil.which("pactl") if pactl is None else pactl
+        self.playerctl = shutil.which("playerctl") if playerctl is None else playerctl
         self.injector = injector or LinuxTextInjector(
             session=session if session != "none" else "auto",
             environment=self.environment,
@@ -312,6 +319,41 @@ class LinuxActionRunner:
         raise ActionError(f"key is not supported by ydotool backend: {key}")
 
     async def system(self, name: str) -> None:
+        if name in {"volume_up", "volume_down", "mute"}:
+            if self.wpctl:
+                if name == "mute":
+                    await self._run_command(
+                        self.wpctl, "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"
+                    )
+                else:
+                    step = "5%+" if name == "volume_up" else "5%-"
+                    await self._run_command(
+                        self.wpctl,
+                        "set-volume",
+                        "--limit",
+                        "1.0",
+                        "@DEFAULT_AUDIO_SINK@",
+                        step,
+                    )
+                await self._show_volume_feedback(name)
+                return
+            if self.pactl:
+                if name == "mute":
+                    await self._run_command(self.pactl, "set-sink-mute", "@DEFAULT_SINK@", "toggle")
+                else:
+                    step = "+5%" if name == "volume_up" else "-5%"
+                    await self._run_command(self.pactl, "set-sink-volume", "@DEFAULT_SINK@", step)
+                await self._show_volume_feedback(name)
+                return
+        if name in {"play_pause", "next", "prev", "previous"} and self.playerctl:
+            operation = {
+                "play_pause": "play-pause",
+                "next": "next",
+                "prev": "previous",
+                "previous": "previous",
+            }[name]
+            await self._run_command(self.playerctl, operation)
+            return
         media_key = MEDIA_KEYS.get(name)
         if media_key:
             await self.key_stroke(media_key)
@@ -379,6 +421,34 @@ class LinuxActionRunner:
         except DesktopActionError as exc:
             raise ActionError(str(exc)) from exc
         return
+
+    async def _show_volume_feedback(self, name: str) -> None:
+        labels = {
+            "volume_up": "音量已提高",
+            "volume_down": "音量已降低",
+            "mute": "静音状态已切换",
+        }
+        body = labels[name]
+        value = None
+        if self.wpctl:
+            try:
+                output = await self._capture_command(
+                    self.wpctl, "get-volume", "@DEFAULT_AUDIO_SINK@"
+                )
+                match = re.search(r"Volume:\s+([0-9.]+)", output)
+                if match:
+                    value = round(float(match.group(1)) * 100)
+                    muted = "[MUTED]" in output
+                    if name == "mute":
+                        body = "已静音" if muted else "已取消静音"
+                    else:
+                        body = f"音量 {value}%" + ("（静音中）" if muted else "")
+            except ActionError:
+                logger.debug("cannot read volume for notification", exc_info=True)
+        try:
+            await self.desktop.notify("MiRemote", body, value=value)
+        except DesktopActionError:
+            logger.debug("cannot show volume notification", exc_info=True)
 
     async def mouse_move(self, dx: int, dy: int) -> None:
         if not dx and not dy:
@@ -450,3 +520,33 @@ class LinuxActionRunner:
             raise ActionError(
                 f"{command[0]} exited with {process.returncode}: {detail or 'unknown error'}"
             )
+
+    async def _capture_command(self, *command: str, timeout: float = 10.0) -> str:
+        if not command:
+            raise ActionError("empty command")
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=self.environment,
+            )
+        except OSError as exc:
+            raise ActionError(f"cannot start {command[0]}: {exc}") from exc
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+            raise ActionError(f"{command[0]} timed out after {timeout:g}s") from exc
+        if process.returncode:
+            detail = stderr.decode("utf-8", errors="replace").strip()
+            raise ActionError(
+                f"{command[0]} exited with {process.returncode}: {detail or 'unknown error'}"
+            )
+        return stdout.decode("utf-8", errors="replace")
