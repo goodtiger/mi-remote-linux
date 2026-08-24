@@ -11,7 +11,7 @@ import numpy as np
 from .action_runner import LinuxActionRunner
 from .atvv import SyncFrame
 from .ble_client import ATVVClient
-from .config import ConfigError, load_config
+from .config import ConfigError, default_config_text, load_config
 from .hid_guard import HID_GRAB_MODES, RemoteHIDGuard
 from .injector import PASTE_SHORTCUTS, LinuxTextInjector, TextInjectionError
 from .remote_keys import KeyRunApp, KeyWatchApp, RemoteKeyService
@@ -345,6 +345,22 @@ def cmd_keys_run(args: argparse.Namespace) -> None:
         pass
 
 
+def cmd_config_show(_args: argparse.Namespace) -> None:
+    print(default_config_text(), end="")
+
+
+def cmd_config_validate(args: argparse.Namespace) -> None:
+    try:
+        config = load_config(args.path)
+    except ConfigError as exc:
+        print(f"按键配置无效: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    print(
+        f"配置有效: v{config.version}, {len(config.bindings)} 个全局按键, "
+        f"{len(config.profiles)} 个 App profile"
+    )
+
+
 def main() -> None:
     """主入口。"""
     parser = argparse.ArgumentParser(
@@ -427,7 +443,9 @@ def main() -> None:
     )
     voice_parser.add_argument(
         "--config",
-        help="启用完整按键映射并读取 Phase B JSON 配置；替代 --grab-hid 过滤器",
+        nargs="?",
+        const="default",
+        help="启用完整按键映射；不带路径时使用内置 macOS 对应默认配置",
     )
     voice_parser.add_argument(
         "--inject",
@@ -466,8 +484,8 @@ def main() -> None:
     run_parser.add_argument(
         "-c",
         "--config",
-        required=True,
-        help="映射 JSON；可从 examples/remote.example.json 复制",
+        default="default",
+        help="映射 JSON（默认使用内置 macOS 对应配置）",
     )
     run_parser.add_argument(
         "--session",
@@ -476,6 +494,14 @@ def main() -> None:
         help="图形会话类型（默认: auto）",
     )
     run_parser.set_defaults(func=cmd_keys_run)
+
+    config_parser = subparsers.add_parser("config", help="查看或校验按键配置")
+    config_subparsers = config_parser.add_subparsers(dest="config_command")
+    show_parser = config_subparsers.add_parser("show", help="输出内置默认配置 JSON")
+    show_parser.set_defaults(func=cmd_config_show)
+    validate_parser = config_subparsers.add_parser("validate", help="严格校验配置 JSON")
+    validate_parser.add_argument("path", help="配置文件路径，或 default")
+    validate_parser.set_defaults(func=cmd_config_validate)
 
     args = parser.parse_args()
     if getattr(args, "submit", False) and not getattr(args, "inject", False):

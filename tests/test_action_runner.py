@@ -91,3 +91,40 @@ async def test_wayland_falls_back_to_ydotool_key_codes():
     runner._run_command.assert_awaited_once_with(
         "/usr/bin/ydotool", "key", "29:1", "28:1", "28:0", "29:0"
     )
+
+
+@pytest.mark.asyncio
+async def test_macos_modifier_names_translate_to_linux_semantics():
+    runner = LinuxActionRunner(
+        session="wayland", environment={"WAYLAND_DISPLAY": "x"}, wtype="wtype"
+    )
+    runner._run_command = AsyncMock()
+
+    await runner.key_stroke("k", ("left_cmd", "left_option"))
+
+    runner._run_command.assert_awaited_once_with(
+        "wtype", "-M", "ctrl", "-M", "alt", "-k", "k", "-m", "alt", "-m", "ctrl"
+    )
+
+
+@pytest.mark.asyncio
+async def test_advanced_actions_delegate_to_desktop_and_overlay():
+    desktop = AsyncMock()
+    overlay = AsyncMock()
+    runner = LinuxActionRunner(
+        session="wayland",
+        environment={"WAYLAND_DISPLAY": "x"},
+        wtype="wtype",
+        desktop=desktop,
+        overlay_handler=overlay,
+    )
+
+    await runner.run(Action(type="window_cycle", scope="app"))
+    await runner.run(Action(type="open_app", value="org.mozilla.firefox"))
+    await runner.run(Action(type="overlay", value="window_picker"))
+    await runner.run(Action(type="system", value="mission_control"))
+
+    desktop.cycle_window.assert_awaited_once_with("app")
+    desktop.open_app.assert_awaited_once_with("org.mozilla.firefox")
+    assert overlay.await_args_list[0].args == ("window_picker",)
+    assert overlay.await_args_list[1].args == ("mission_control",)

@@ -1,0 +1,262 @@
+{
+  "version": 2,
+  "settings": {
+    "hold_ms": 350,
+    "double_ms": 250,
+    "layer_idle_ms": 20000,
+    "escape_hold_ms": 1500,
+    "delete_all_on_hold": false
+  },
+  "bindings": {
+    "up": {
+      "tap": {"type": "key_stroke", "key": "up_arrow"},
+      "layers": {
+        "1": {"type": "system", "value": "volume_up"},
+        "2": {"type": "key_stroke", "key": "up_arrow"},
+        "3": {"type": "macro", "steps": [
+          {"type": "system", "value": "previous_app_window"},
+          {"type": "delay", "ms": 250},
+          {"type": "focus_input"}
+        ]}
+      }
+    },
+    "down": {
+      "tap": {"type": "key_stroke", "key": "down_arrow"},
+      "layers": {
+        "1": {"type": "system", "value": "volume_down"},
+        "2": {"type": "key_stroke", "key": "down_arrow"},
+        "3": {"type": "macro", "steps": [
+          {"type": "system", "value": "next_app_window"},
+          {"type": "delay", "ms": 250},
+          {"type": "focus_input"}
+        ]}
+      }
+    },
+    "left": {
+      "tap": {"type": "key_stroke", "key": "left_arrow"},
+      "layers": {
+        "1": {"type": "system", "value": "space_left"},
+        "2": {"type": "tab_jump", "dir": -1},
+        "3": {"type": "macro", "steps": [
+          {"type": "system", "value": "previous_app"},
+          {"type": "delay", "ms": 250},
+          {"type": "focus_input"}
+        ]}
+      }
+    },
+    "right": {
+      "tap": {"type": "key_stroke", "key": "right_arrow"},
+      "layers": {
+        "1": {"type": "system", "value": "space_right"},
+        "2": {"type": "tab_jump", "dir": 1},
+        "3": {"type": "macro", "steps": [
+          {"type": "system", "value": "next_app"},
+          {"type": "delay", "ms": 250},
+          {"type": "focus_input"}
+        ]}
+      }
+    },
+    "ok": {
+      "tap": {"type": "key_stroke", "key": "return"},
+      "layers": {
+        "2": {"type": "key_stroke", "key": "return"},
+        "3": {"type": "focus_input"}
+      }
+    },
+    "back": {
+      "tap": {"type": "key_stroke", "key": "backspace"},
+      "layers": {
+        "1": {"type": "system", "value": "previous_app"},
+        "2": {"type": "key_stroke", "key": "escape"},
+        "3": {"type": "system", "value": "space_left"}
+      }
+    },
+    "menu": {
+      "tap": {"type": "overlay", "value": "window_picker"},
+      "hold": {"type": "overlay", "value": "system_menu"},
+      "layers": {
+        "1": {"type": "system", "value": "next_app"},
+        "2": {"type": "key_stroke", "key": "tab", "mods": ["shift"]},
+        "3": {"type": "layer_toggle", "value": 3}
+      }
+    },
+    "home": {
+      "tap": {"type": "system", "value": "mission_control"},
+      "hold": {"type": "overlay", "value": "tutorial"},
+      "layers": {
+        "1": {"type": "system", "value": "mission_control"},
+        "2": {"type": "key_stroke", "key": "c", "mods": ["ctrl"]},
+        "3": {"type": "system", "value": "space_right"}
+      }
+    },
+    "tv": {
+      "tap": {"type": "layer_toggle", "value": 2},
+      "hold": {"type": "overlay", "value": "app_wheel"},
+      "layers": {
+        "1": {"type": "system", "value": "app_expose"},
+        "3": {"type": "system", "value": "app_expose"}
+      }
+    },
+    "power": {
+      "tap": {"type": "system", "value": "display_sleep"},
+      "hold": {"type": "mouse_mode"},
+      "layers": {
+        "2": {"type": "focus_input"},
+        "3": {"type": "system", "value": "show_desktop"}
+      }
+    },
+    "vol_up": {
+      "tap": {"type": "system", "value": "volume_up"},
+      "layers": {"2": {"type": "tab_jump", "dir": 1}}
+    },
+    "vol_down": {
+      "tap": {"type": "system", "value": "volume_down"},
+      "layers": {"2": {"type": "tab_jump", "dir": -1}}
+    },
+    "voice": {"tap": {"type": "voice"}}
+  },
+  "profile_apps": {
+    "ghostty": ["com.mitchellh.ghostty", "ghostty", "foot", "kitty", "alacritty", "konsole", "wezterm"],
+    "codex": ["com.openai.codex", "codex"],
+    "chatgpt": ["com.openai.chat", "chatgpt"],
+    "claude": ["com.anthropic.claude", "claude"],
+    "chrome": ["google-chrome", "google-chrome-stable", "chromium", "brave-browser", "chrome-"],
+    "firefox": ["firefox"],
+    "wechat": ["com.tencent.wechat", "wechat", "weixin"],
+    "vlc": ["vlc", "org.videolan.vlc"],
+    "mpv": ["mpv", "io.mpv.mpv"],
+    "powerpoint": ["powerpoint", "libreoffice-impress"],
+    "zoom": ["zoom", "us.zoom.xos"],
+    "tencent_meeting": ["wemeet", "tencent.meeting"],
+    "feishu": ["lark", "feishu"]
+  },
+  "profiles": {
+    "ghostty": {
+      "left": {
+        "tap": {"type": "tab_jump", "dir": -1},
+        "layers": {"1": {"type": "key_stroke", "key": "left_bracket", "mods": ["ctrl"]}}
+      },
+      "right": {
+        "tap": {"type": "tab_jump", "dir": 1},
+        "layers": {"1": {"type": "key_stroke", "key": "right_bracket", "mods": ["ctrl"]}}
+      },
+      "up": {
+        "tap": {"type": "key_stroke", "key": "up_arrow"},
+        "layers": {"1": {"type": "key_stroke", "key": "up_arrow", "mods": ["ctrl", "alt"]}}
+      },
+      "down": {
+        "tap": {"type": "key_stroke", "key": "down_arrow"},
+        "layers": {"1": {"type": "key_stroke", "key": "down_arrow", "mods": ["ctrl", "alt"]}}
+      },
+      "ok": {
+        "tap": {"type": "key_stroke", "key": "return"},
+        "hold": {"type": "key_stroke", "key": "c", "mods": ["ctrl"]},
+        "layers": {"1": {"type": "key_stroke", "key": "return", "mods": ["ctrl", "shift"]}}
+      },
+      "back": {
+        "tap": {"type": "key_stroke", "key": "escape"},
+        "hold": {"type": "key_stroke", "key": "u", "mods": ["ctrl"]}
+      },
+      "home": {"layers": {"2": {"type": "focus_input"}}}
+    },
+    "codex": {
+      "left": {"tap": {"type": "tab_jump", "dir": -1}},
+      "right": {"tap": {"type": "tab_jump", "dir": 1}},
+      "up": {"tap": {"type": "key_stroke", "key": "up_arrow"}},
+      "down": {"tap": {"type": "key_stroke", "key": "down_arrow"}},
+      "ok": {"tap": {"type": "key_stroke", "key": "return"}},
+      "back": {"tap": {"type": "key_stroke", "key": "escape"}},
+      "home": {"layers": {"2": {"type": "focus_input"}}}
+    },
+    "chatgpt": {
+      "up": {"tap": {"type": "key_stroke", "key": "up_arrow"}},
+      "down": {"tap": {"type": "key_stroke", "key": "down_arrow"}},
+      "ok": {"tap": {"type": "key_stroke", "key": "return"}},
+      "back": {
+        "tap": {"type": "key_stroke", "key": "escape"},
+        "layers": {"2": {"type": "key_stroke", "key": "period", "mods": ["ctrl"]}}
+      },
+      "menu": {"layers": {"2": {"type": "key_stroke", "key": "k", "mods": ["ctrl"]}}},
+      "home": {"layers": {"2": {"type": "focus_input"}}}
+    },
+    "claude": {
+      "left": {"tap": {"type": "tab_jump", "dir": -1}},
+      "right": {"tap": {"type": "tab_jump", "dir": 1}},
+      "up": {"tap": {"type": "key_stroke", "key": "up_arrow"}},
+      "down": {"tap": {"type": "key_stroke", "key": "down_arrow"}},
+      "ok": {"tap": {"type": "key_stroke", "key": "return"}},
+      "back": {"tap": {"type": "key_stroke", "key": "escape"}},
+      "home": {"layers": {"2": {"type": "focus_input"}}}
+    },
+    "chrome": {
+      "left": {"tap": {"type": "tab_jump", "dir": -1}},
+      "right": {"tap": {"type": "tab_jump", "dir": 1}},
+      "up": {"tap": {"type": "key_stroke", "key": "page_up"}},
+      "down": {"tap": {"type": "key_stroke", "key": "page_down"}},
+      "ok": {"tap": {"type": "key_stroke", "key": "return"}},
+      "back": {"tap": {"type": "key_stroke", "key": "left_arrow", "mods": ["alt"]}},
+      "home": {"layers": {"2": {"type": "key_stroke", "key": "l", "mods": ["ctrl"]}}},
+      "menu": {"layers": {"2": {"type": "key_stroke", "key": "k", "mods": ["ctrl"]}}}
+    },
+    "firefox": {
+      "left": {"tap": {"type": "tab_jump", "dir": -1}},
+      "right": {"tap": {"type": "tab_jump", "dir": 1}},
+      "up": {"tap": {"type": "key_stroke", "key": "page_up"}},
+      "down": {"tap": {"type": "key_stroke", "key": "page_down"}},
+      "ok": {"tap": {"type": "key_stroke", "key": "return"}},
+      "back": {"tap": {"type": "key_stroke", "key": "left_arrow", "mods": ["alt"]}},
+      "home": {"layers": {"2": {"type": "key_stroke", "key": "l", "mods": ["ctrl"]}}}
+    },
+    "wechat": {
+      "up": {"tap": {"type": "key_stroke", "key": "up_arrow"}},
+      "down": {
+        "tap": {"type": "key_stroke", "key": "down_arrow"},
+        "layers": {"2": {"type": "key_stroke", "key": "g", "mods": ["ctrl"]}}
+      },
+      "left": {"tap": {"type": "key_stroke", "key": "page_up"}},
+      "right": {"tap": {"type": "key_stroke", "key": "page_down"}},
+      "ok": {"tap": {"type": "key_stroke", "key": "return"}},
+      "back": {"tap": {"type": "key_stroke", "key": "escape"}},
+      "home": {"layers": {"2": {"type": "key_stroke", "key": "f", "mods": ["ctrl"]}}},
+      "menu": {"layers": {"2": {"type": "macro", "steps": [
+        {"type": "key_stroke", "key": "f", "mods": ["ctrl"]},
+        {"type": "delay", "ms": 300},
+        {"type": "text", "value": "文件传输助手"},
+        {"type": "delay", "ms": 400},
+        {"type": "key_stroke", "key": "return"}
+      ]}}}
+    },
+    "vlc": {
+      "ok": {"tap": {"type": "key_stroke", "key": "space"}},
+      "left": {"tap": {"type": "key_stroke", "key": "left_arrow"}},
+      "right": {"tap": {"type": "key_stroke", "key": "right_arrow"}},
+      "up": {"tap": {"type": "key_stroke", "key": "f"}},
+      "menu": {"layers": {"2": {"type": "key_stroke", "key": "v"}}}
+    },
+    "mpv": {
+      "ok": {"tap": {"type": "key_stroke", "key": "space"}},
+      "left": {"tap": {"type": "key_stroke", "key": "left_arrow"}},
+      "right": {"tap": {"type": "key_stroke", "key": "right_arrow"}},
+      "up": {"tap": {"type": "key_stroke", "key": "f"}},
+      "menu": {"layers": {"2": {"type": "key_stroke", "key": "j"}}}
+    },
+    "powerpoint": {
+      "left": {"tap": {"type": "key_stroke", "key": "left_arrow"}},
+      "right": {"tap": {"type": "key_stroke", "key": "right_arrow"}},
+      "ok": {"tap": {"type": "key_stroke", "key": "f5"}},
+      "menu": {"layers": {"2": {"type": "key_stroke", "key": "b"}}}
+    },
+    "zoom": {
+      "tv": {
+        "tap": {"type": "key_stroke", "key": "a", "mods": ["alt"]},
+        "double": {"type": "key_stroke", "key": "v", "mods": ["alt"]}
+      }
+    },
+    "tencent_meeting": {
+      "tv": {"tap": {"type": "key_stroke", "key": "a", "mods": ["alt"]}}
+    },
+    "feishu": {
+      "tv": {"tap": {"type": "key_stroke", "key": "d", "mods": ["alt", "shift"]}}
+    }
+  }
+}

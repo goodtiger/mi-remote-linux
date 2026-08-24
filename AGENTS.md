@@ -85,6 +85,10 @@ down=108、left=105、right=106、ok=28、back=158、home=102、menu=127、tv=41
 volUp=115、volDown=114。`mi-remote keys watch` 用于探针，`keys run` 用于纯按键模式，
 `voice --config ...` 用于语音和按键合并运行。
 
+macOS v7 对应层已实现：包内默认配置、App 控制模式、前台应用 profile、Hyprland/Sway/X11
+窗口与工作区适配、通知式窗口选择器/系统菜单/App 轮盘/教程，以及鼠标模式。完整模式使用
+`mi-remote voice --config --inject`；`mi-remote config show` 可导出默认 JSON。
+
 本机 evdev 真机确认是单键 rollover：一个键按住期间第二键不会上报。因此引擎保留
 OK+方向手势与 momentary layer 兼容能力，但默认 RC003 配置使用长按/TV toggle 层。
 
@@ -119,6 +123,9 @@ mi-remote-linux/
 │       ├── hid_engine.py  # evdev RC003 热插拔与 13 键读取
 │       ├── mapping_engine.py # tap/hold/double、层与手势状态机
 │       ├── action_runner.py  # Wayland/X11 动作执行
+│       ├── desktop.py     # 前台 App、窗口与工作区适配
+│       ├── interactions.py # 浮层和鼠标模式
+│       ├── default_mapping.json # macOS v7 对应默认配置
 │       ├── remote_keys.py # 按键服务生命周期
 │       └── config.py      # 严格 JSON 配置模型
 ├── tests/

@@ -1,10 +1,13 @@
 """CLI 语音结果输出测试。"""
 
+import json
+import sys
 from unittest.mock import AsyncMock
 
 import numpy as np
 import pytest
 
+from mi_remote_linux import main as main_module
 from mi_remote_linux.main import VoiceApp
 from mi_remote_linux.text_corrector import TextCorrector
 
@@ -82,3 +85,21 @@ def test_disconnect_requests_reconnect_without_stopping_app():
 
     assert app._connection_lost_event.is_set()
     assert not app._stop_event.is_set()
+
+
+def test_config_show_outputs_packaged_default(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["mi-remote", "config", "show"])
+
+    main_module.main()
+
+    raw = json.loads(capsys.readouterr().out)
+    assert raw["version"] == 2
+    assert len(raw["bindings"]) == 13
+
+
+def test_config_validate_accepts_packaged_default(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["mi-remote", "config", "validate", "default"])
+
+    main_module.main()
+
+    assert "13 个全局按键" in capsys.readouterr().out

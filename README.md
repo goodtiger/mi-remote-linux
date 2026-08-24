@@ -11,6 +11,8 @@
 - 进程内常驻 Sherpa-ONNX Paraformer，也可回退 Voxtype CLI 或 faster-whisper
 - 自动发现已配对的 RC003，断线后持续重连
 - 13 键全部可配置，支持短按、长按、双击、OK+方向手势、层和宏
+- 对应 macOS v7 默认心智模型、App 控制模式和前台应用 profile
+- 窗口选择器、任务视图、App 轮盘、系统菜单、教程与鼠标模式
 - Wayland 使用 `wtype`，也可回退 `ydotool`；X11 使用 `xdotool`
 - 只打开 RC003 自己的输入节点，不修改桌面快捷键或物理键盘行为
 - 兼容 ATVV v1 与旧 codec 字段布局
@@ -95,8 +97,8 @@ quit
 # 使用自定义术语纠正表
 .venv/bin/mi-remote voice --terms examples/terms.example.json --inject
 
-# 语音、焦点输入和完整 13 键映射在同一进程运行（推荐完整模式）
-.venv/bin/mi-remote voice --config examples/remote.example.json --inject
+# 语音、焦点输入和 macOS 对应完整按键功能（推荐完整模式）
+.venv/bin/mi-remote voice --config --inject
 
 # 转写后自动粘贴到当前焦点（推荐）
 .venv/bin/mi-remote voice --address AA:BB:CC:DD:EE:FF --inject
@@ -124,21 +126,48 @@ stdout 只输出识别文本，状态和日志写到 stderr，便于交给其他
 只运行按键功能、不连接 BLE 语音通道：
 
 ```bash
-.venv/bin/mi-remote keys run --config examples/remote.example.json
+.venv/bin/mi-remote keys run
 ```
 
-通常应使用前面的 `voice --config ... --inject`，让一个进程同时持有 evdev 与 BLE，完成
+通常应使用前面的 `voice --config --inject`，让一个进程同时持有 evdev 与 BLE，完成
 语音输入和全部按键动作。不要同时启动 `voice` 与 `keys run`，单实例锁也会阻止这种争抢。
 
-示例配置包含本机真机确认的 13 键默认表：语音键由 ATVV 处理，方向/确认/返回作为常规
-导航键，音量键控制系统音量；长按主页键切换层 1，TV 切换层 2。活动层空闲 20 秒自动
-退出，任何状态长按菜单 1.5 秒也会回到基础层。
+不指定路径时加载包内 [default_mapping.json](src/mi_remote_linux/default_mapping.json)，对应
+macOS MiRemote v7 默认心智模型：
+
+| 按键 | 单击 | 长按 |
+|---|---|---|
+| 电源 | 关闭显示器 | 鼠标模式 |
+| 语音 | ATVV 语音输入 | 由语音协议控制 |
+| 方向 | 内容导航 | — |
+| OK | Enter | — |
+| 返回 | Backspace | — |
+| Home | 任务视图/窗口总览 | 遥控器教程 |
+| 菜单 | 窗口选择器 | 系统功能菜单 |
+| TV | 进入/退出 App 控制模式（层2） | App 轮盘 |
+| 音量± | 系统音量 | — |
+
+App 控制模式与 macOS 一致：上下选择、左右和音量±切 Agent/标签、OK 批准、返回 Esc、
+菜单 Shift+Tab、Home Ctrl+C、电源恢复当前窗口输入焦点、TV 退出。层空闲 20 秒自动退出，
+任何状态长按菜单 1.5 秒紧急回到基础层。
+
+窗口/App/系统浮层不依赖额外 GUI 框架：桌面通知显示当前选项，方向或音量键选择、OK
+确认、返回关闭。窗口选择器按菜单键按“全局 → 当前 App → 关闭”循环；App 轮盘空闲 3 秒、
+其他浮层空闲 20 秒自动关闭。退出 App、锁屏和熄屏必须持续按住 OK 0.6 秒确认。Hyprland、
+Sway 使用原生 IPC 聚焦窗口和切工作区，X11 使用 xdotool；Hyprland 会自动区分 0.55+
+Lua dispatcher 与旧版 dispatcher，无需修改用户配置；
+其他 Wayland 桌面保留按键/通知能力，对无法通用实现的窗口操作给出明确错误。
+
+内置前台应用 profile 包含 Ghostty/常见终端、Codex、ChatGPT、Claude、Chrome/Chromium/
+Brave、Firefox、微信、VLC、mpv、PowerPoint/Impress、Zoom、腾讯会议和飞书。profile 仅覆盖
+声明的动作槽，其他动作继承全局配置。
 
 配置动作类型如下：
 
 - `key_stroke`：`key` 加可选 `mods`，例如 `ctrl`、`shift`、`alt`、`super`
 - `text`：把 UTF-8 `value` 粘贴到当前焦点
 - `system`：音量、静音、播放控制或锁屏
+- `open_app`、`window_cycle`、`tab_jump`、`focus_input`、`mouse_mode`、`overlay`
 - `command`：仅接受 `argv` 字符串数组，直接执行程序，不经过 shell
 - `layer_momentary` / `layer_toggle`：临时层或锁定层
 - `macro`：`steps` 中可混合上述动作和 `{"type":"delay","ms":80}`
@@ -147,10 +176,23 @@ stdout 只输出识别文本，状态和日志写到 stderr，便于交给其他
 `bindings.<按键>` 可配置 `tap`、`hold`、`double`、`gesture` 和 `layers`。如果不同固件产生
 不同 evdev code，可在根级 `key_codes` 中覆盖，例如 `{"200":"voice"}`；先用
 `keys watch` 获取真实 code。配置严格校验，拼错动作、按键或字段时启动会直接报错。
+基础层长按返回键默认仍只发送一次 Backspace，避免 App profile 的长按动作意外清空输入；
+明确需要“全选并删除”时可设置 `settings.delete_all_on_hold` 为 `true`。
+
+查看或导出完整默认 JSON，并校验修改后的文件：
+
+```bash
+.venv/bin/mi-remote config show > my-remote.json
+.venv/bin/mi-remote config validate my-remote.json
+.venv/bin/mi-remote voice --config my-remote.json --inject
+```
+
+原先偏保守的 Linux 示例保留为 `examples/linux-safe.example.json`。
 
 映射引擎完整支持 `OK+方向` 手势和 `layer_momentary`，但本机 RC003-MS 在 Linux evdev
 真机测试中是单键 rollover：按住任意键时不会上报第二个键，所以默认配置不用同时按键。
-其他固件/遥控器若能上报组合键，可直接在 JSON 启用这两项能力。
+其他固件/遥控器若能上报组合键，可直接在 JSON 启用这两项能力。macOS v7 当前默认同样
+遵循“零同按”原则，不默认启用手势或瞬时层。
 
 `--address` 是遥控器的蓝牙 MAC 地址，不是 IP 地址；通常可以省略。程序会从 BlueZ 已
 配对设备和广播中自动识别 RC003。遥控器休眠或临时断开后，进程会指数退避重连；同一用户
@@ -242,6 +284,8 @@ uinput 授权方案。项目不会自动安装 udev 规则，
   safe 模式不会独占它，此时可安装规则或权衡后使用 `--grab-hid force`。
 - 部分 GNOME/KDE Wayland 会限制虚拟键盘协议，`--inject` 在这些环境中可能只能把结果
   保留到剪贴板/stdout。
+- Wayland 鼠标模式：Hyprland 使用原生 IPC；其他合成器需要 `ydotool/ydotoold`。X11 使用
+  `xdotool`。
 - `--inject` 会覆盖当前文本剪贴板；`--submit` 会额外发送 Enter，默认不开启。
 
 ## 后台自启动
@@ -278,14 +322,15 @@ systemctl --user stop mi-remote-voice.service
 
 当前自动化覆盖 ATVV 字段解析、握手音频状态、裸帧/带头帧、错位重同步、ADPCM
 跨批状态、PCM 后处理、常驻 Paraformer、静音保护、术语纠正、断线重连、单实例、RC003
-设备级语音键隔离、13 键 HID 映射、tap/hold/double、手势、层、宏，以及 Wayland/X11
-动作生成与注入失败回退。实机验收步骤见 [AGENTS.md](AGENTS.md)。
+设备级语音键隔离、13 键 HID 映射、tap/hold/double、手势、层、宏、前台 App profile、
+窗口/工作区动作、浮层和 Wayland/X11 动作生成。实机验收步骤见 [AGENTS.md](AGENTS.md)。
 
 ## 开发路线
 
 1. Phase C：语音采集、常驻 Paraformer、焦点输入和自动重连（已完成）
 2. Phase B：13 键映射、层、手势、宏与 Wayland/X11 动作后端（已完成）
-3. 后续：per-app profile、配置 GUI、更多合成器真机兼容矩阵
+3. macOS v7 默认语义、per-app profile、窗口/App 浮层和鼠标模式（已完成）
+4. 后续：原生桌面 GUI 配置编辑器和更多合成器兼容矩阵
 
 ## 参考
 

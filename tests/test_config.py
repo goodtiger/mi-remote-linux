@@ -2,21 +2,24 @@ import json
 
 import pytest
 
-from mi_remote_linux.config import ConfigError, load_config, parse_config
+from mi_remote_linux.config import ConfigError, load_config, load_default_config, parse_config
 
 
 def test_example_config_loads_all_remote_keys():
-    config = load_config("examples/remote.example.json")
+    config = load_default_config()
 
     assert len(config.bindings) == 13
-    assert config.bindings["home"].hold.type == "layer_toggle"
+    assert config.bindings["home"].tap.value == "mission_control"
+    assert config.bindings["power"].hold.type == "mouse_mode"
     assert config.bindings["back"].hold is None
+    assert "ghostty" in config.profiles
+    assert config.profile_apps["chrome"]
 
 
 @pytest.mark.parametrize(
     "raw, message",
     [
-        ({"version": 2}, "unsupported"),
+        ({"version": 3}, "unsupported"),
         ({"bindings": {"banana": {}}}, "unknown remote keys"),
         ({"bindings": {"ok": {"tap": {"type": "shell"}}}}, "unknown"),
         (
@@ -30,6 +33,16 @@ def test_example_config_loads_all_remote_keys():
                 }
             },
             "0 to 60000",
+        ),
+        ({"bindings": {"ok": {"tap": {"type": "tab_jump"}}}}, "requires"),
+        ({"settings": {"delete_all_on_hold": 1}}, "boolean"),
+        (
+            {
+                "version": 2,
+                "profiles": {"terminal": {}},
+                "profile_apps": {"missing": ["foot"]},
+            },
+            "unknown profile",
         ),
     ],
 )

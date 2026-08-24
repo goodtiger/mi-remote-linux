@@ -6,9 +6,10 @@ import asyncio
 import logging
 import os
 import shutil
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 
 from .config import Action
+from .desktop import DesktopActionError, LinuxDesktop
 from .injector import LinuxTextInjector, TextInjectionError
 
 logger = logging.getLogger(__name__)
@@ -17,13 +18,21 @@ logger = logging.getLogger(__name__)
 MODIFIERS = {
     "ctrl": "ctrl",
     "left_ctrl": "ctrl",
+    "right_ctrl": "ctrl",
     "shift": "shift",
     "left_shift": "shift",
+    "right_shift": "shift",
     "alt": "alt",
     "left_alt": "alt",
+    "right_alt": "alt",
+    "left_option": "alt",
+    "right_option": "alt",
     "meta": "logo",
     "super": "logo",
     "left_meta": "logo",
+    "right_meta": "logo",
+    "left_cmd": "ctrl",
+    "right_cmd": "ctrl",
 }
 
 WAYLAND_KEYS = {
@@ -47,6 +56,10 @@ WAYLAND_KEYS = {
     "left_arrow": "Left",
     "right": "Right",
     "right_arrow": "Right",
+    "period": "period",
+    "comma": "comma",
+    "left_bracket": "bracketleft",
+    "right_bracket": "bracketright",
 }
 
 X11_KEYS = {
@@ -62,6 +75,7 @@ MEDIA_KEYS = {
     "play_pause": "XF86AudioPlay",
     "next": "XF86AudioNext",
     "previous": "XF86AudioPrev",
+    "prev": "XF86AudioPrev",
 }
 
 YDOTOOL_KEYS = {
@@ -112,6 +126,9 @@ class LinuxActionRunner:
         ydotool: str | None = None,
         xdotool: str | None = None,
         injector: LinuxTextInjector | None = None,
+        desktop: LinuxDesktop | None = None,
+        overlay_handler: Callable[[str], Awaitable[None]] | None = None,
+        mouse_mode_handler: Callable[[], Awaitable[None]] | None = None,
     ):
         self.environment = dict(os.environ if environment is None else environment)
         if session == "auto":
@@ -132,6 +149,12 @@ class LinuxActionRunner:
             wtype=self.wtype,
             xdotool=self.xdotool,
         )
+        self.desktop = desktop or LinuxDesktop(
+            environment=self.environment,
+            xdotool=self.xdotool,
+        )
+        self.overlay_handler = overlay_handler
+        self.mouse_mode_handler = mouse_mode_handler
 
     def missing_dependencies(self) -> list[str]:
         if self.session == "wayland" and not (self.wtype or self.ydotool):
@@ -141,6 +164,14 @@ class LinuxActionRunner:
         if self.session == "none":
             return ["WAYLAND_DISPLAY/DISPLAY"]
         return []
+
+    @property
+    def supports_mouse(self) -> bool:
+        return bool(
+            (self.session == "x11" and self.xdotool)
+            or self.ydotool
+            or self.desktop.backend == "hyprland"
+        )
 
     async def run(self, action: Action) -> None:
         if action.type in {"none", "voice"}:
@@ -174,6 +205,43 @@ class LinuxActionRunner:
             return
         if action.type == "system":
             await self.system(str(action.value))
+            return
+        if action.type == "open_app":
+            try:
+                await self.desktop.open_app(str(action.value))
+            except DesktopActionError as exc:
+                raise ActionError(str(exc)) from exc
+            return
+        if action.type == "window_cycle":
+            try:
+                await self.desktop.cycle_window(action.scope or "app")
+            except DesktopActionError as exc:
+                raise ActionError(str(exc)) from exc
+            return
+        if action.type == "tab_jump":
+            if action.index is not None:
+                await self.key_stroke(str(action.index), ("ctrl",))
+            else:
+                await self.key_stroke(
+                    "page_down" if (action.direction or 1) > 0 else "page_up",
+                    ("ctrl",),
+                )
+            return
+        if action.type == "focus_input":
+            try:
+                await self.desktop.focus_input()
+            except DesktopActionError as exc:
+                raise ActionError(str(exc)) from exc
+            return
+        if action.type == "mouse_mode":
+            if not self.mouse_mode_handler:
+                raise ActionError("mouse mode is not connected")
+            await self.mouse_mode_handler()
+            return
+        if action.type == "overlay":
+            if not self.overlay_handler:
+                raise ActionError("overlay UI is not connected")
+            await self.overlay_handler(str(action.value))
             return
         if action.type == "macro":
             for step in action.steps:
@@ -254,9 +322,107 @@ class LinuxActionRunner:
                 raise ActionError("loginctl is required for lock_screen")
             await self._run_command(loginctl, "lock-session")
             return
-        raise ActionError(f"unsupported system action: {name}")
+        try:
+            if name == "display_sleep":
+                await self.desktop.display_sleep()
+            elif name == "space_left":
+                await self.desktop.workspace(-1)
+            elif name == "space_right":
+                await self.desktop.workspace(1)
+            elif name in {"next_app", "next_global_window"}:
+                await self.desktop.cycle_window("global", 1)
+            elif name in {"previous_app", "previous_global_window", "app_mru_back"}:
+                await self.desktop.cycle_window("global", -1)
+            elif name in {"next_app_window", "focus_next_window"}:
+                await self.desktop.cycle_window("app", 1)
+            elif name in {"previous_app_window", "focus_previous_window"}:
+                await self.desktop.cycle_window("app", -1)
+            elif name in {"mission_control", "app_expose", "launchpad", "spotlight"}:
+                if not self.overlay_handler:
+                    raise ActionError(f"{name} requires overlay UI")
+                overlay = {
+                    "mission_control": "mission_control",
+                    "app_expose": "app_expose",
+                    "launchpad": "app_launcher",
+                    "spotlight": "app_launcher",
+                }[name]
+                await self.overlay_handler(overlay)
+            elif name == "show_desktop":
+                await self.desktop.show_desktop()
+            elif name == "screenshot":
+                await self.key_stroke("s", ("super", "shift"))
+            elif name == "focus_input":
+                await self.desktop.focus_input()
+            elif name == "minimize_window":
+                await self.desktop.active_window_action("minimize")
+            elif name in {"minimize_app_windows", "hide_app"}:
+                await self.desktop.minimize_application_windows()
+            elif name == "close_window":
+                await self.desktop.active_window_action("close")
+            elif name == "toggle_full_screen":
+                await self.desktop.active_window_action("fullscreen")
+            elif name == "hide_other_apps":
+                raise ActionError("hide_other_apps has no portable Linux desktop equivalent")
+            elif name in {
+                "focus_menu_bar",
+                "focus_dock",
+                "focus_toolbar",
+                "focus_next_floating_window",
+                "focus_previous_floating_window",
+                "focus_status_menus",
+                "notification_center",
+                "control_center",
+            }:
+                raise ActionError(f"{name} has no portable Linux desktop equivalent")
+            else:
+                raise ActionError(f"unsupported system action: {name}")
+        except DesktopActionError as exc:
+            raise ActionError(str(exc)) from exc
+        return
 
-    async def _run_command(self, *command: str) -> None:
+    async def mouse_move(self, dx: int, dy: int) -> None:
+        if not dx and not dy:
+            return
+        if self.session == "x11" and self.xdotool:
+            await self._run_command(
+                self.xdotool,
+                "mousemove_relative",
+                "--sync",
+                "--",
+                str(dx),
+                str(dy),
+            )
+            return
+        if self.ydotool:
+            await self._run_command(self.ydotool, "mousemove", "-x", str(dx), "-y", str(dy))
+            return
+        if self.desktop.backend == "hyprland":
+            try:
+                await self.desktop.mouse_move(dx, dy)
+            except DesktopActionError as exc:
+                raise ActionError(str(exc)) from exc
+            return
+        raise ActionError("mouse mode requires xdotool (X11) or ydotool (Wayland)")
+
+    async def mouse_click(self, button: str) -> None:
+        number = "1" if button == "left" else "3"
+        if self.session == "x11" and self.xdotool:
+            await self._run_command(self.xdotool, "click", number)
+            return
+        if self.ydotool:
+            # Linux input BTN_LEFT=0x110, BTN_RIGHT=0x111.
+            code = "0xC0" if button == "left" else "0xC1"
+            await self._run_command(self.ydotool, "click", code)
+            return
+        if self.desktop.backend == "hyprland":
+            try:
+                await self.desktop.mouse_click(button)
+            except DesktopActionError as exc:
+                raise ActionError(str(exc)) from exc
+            return
+        raise ActionError("mouse mode requires xdotool (X11) or ydotool (Wayland)")
+
+    async def _run_command(self, *command: str, timeout: float = 10.0) -> None:
         if not command:
             raise ActionError("empty command")
         try:
@@ -269,7 +435,16 @@ class LinuxActionRunner:
             )
         except OSError as exc:
             raise ActionError(f"cannot start {command[0]}: {exc}") from exc
-        _stdout, stderr = await process.communicate()
+        try:
+            _stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+            raise ActionError(f"{command[0]} timed out after {timeout:g}s") from exc
         if process.returncode:
             detail = stderr.decode("utf-8", errors="replace").strip()
             raise ActionError(

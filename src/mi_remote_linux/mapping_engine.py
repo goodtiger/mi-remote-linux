@@ -31,11 +31,15 @@ class MappingEngine:
         run_action: Callable[[Action], Awaitable[None]],
         *,
         on_layer: Callable[[int], None] | None = None,
+        on_escape: Callable[[], None] | None = None,
+        event_filter: Callable[[ButtonEvent], bool] | None = None,
         loop: asyncio.AbstractEventLoop | None = None,
     ):
         self.config = config
         self.run_action = run_action
         self.on_layer = on_layer
+        self.on_escape = on_escape
+        self.event_filter = event_filter
         self._loop = loop
         self._states: dict[str, _KeyState] = {}
         self._locked_layer = 0
@@ -45,6 +49,7 @@ class MappingEngine:
         self._escape_timer: asyncio.TimerHandle | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         self._last_layer = 0
+        self._active_profile: str | None = None
 
     @property
     def effective_layer(self) -> int:
@@ -61,6 +66,10 @@ class MappingEngine:
             self._restart_layer_idle()
         if event.key == "menu":
             self._track_escape(event.is_down)
+        if self.event_filter and self.event_filter(event):
+            if not event.is_down:
+                self._release_filtered_key(event.key)
+            return
         if event.is_down:
             self._handle_down(event.key)
         else:
@@ -91,8 +100,40 @@ class MappingEngine:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
+    def set_active_application(self, application: str | None) -> None:
+        """Select the first profile whose app pattern matches the active desktop app."""
+        normalized = (application or "").casefold()
+        selected = None
+        for profile, patterns in self.config.profile_apps.items():
+            if any(pattern.casefold() in normalized for pattern in patterns):
+                selected = profile
+                break
+        if selected != self._active_profile:
+            self._active_profile = selected
+            logger.info("active mapping profile: %s", selected or "global")
+
+    @property
+    def active_profile(self) -> str | None:
+        return self._active_profile
+
     def _binding(self, key: str) -> KeyBinding:
-        return self.config.bindings.get(key, KeyBinding())
+        base = self.config.bindings.get(key, KeyBinding())
+        if not self._active_profile:
+            return base
+        overlay = self.config.profiles.get(self._active_profile, {}).get(key)
+        if overlay is None:
+            return base
+        gestures = dict(base.gesture)
+        gestures.update(overlay.gesture)
+        layers = dict(base.layers)
+        layers.update(overlay.layers)
+        return KeyBinding(
+            tap=overlay.tap if overlay.tap is not None else base.tap,
+            hold=overlay.hold if overlay.hold is not None else base.hold,
+            double=overlay.double if overlay.double is not None else base.double,
+            gesture=gestures,
+            layers=layers,
+        )
 
     def _handle_down(self, key: str) -> None:
         state = self._states.setdefault(key, _KeyState())
@@ -140,6 +181,20 @@ class MappingEngine:
             return
         state.timer = None
         state.hold_fired = True
+        if key == "back" and self.effective_layer == 0:
+            if self.config.settings.delete_all_on_hold:
+                action = Action(
+                    type="macro",
+                    steps=(
+                        Action(type="key_stroke", key="a", mods=("ctrl",)),
+                        Action(type="key_stroke", key="backspace"),
+                    ),
+                )
+            else:
+                action = Action(type="key_stroke", key="backspace")
+            self._perform(action, key=key, is_hold=True)
+            logger.info("hold %s (protected base delete)", key)
+            return
         action = self._binding(key).hold
         if action:
             self._perform(action, key=key, is_hold=True)
@@ -180,6 +235,22 @@ class MappingEngine:
         else:
             state.phase = "idle"
             self._fire_tap(key)
+
+    def _release_filtered_key(self, key: str) -> None:
+        """Clean a pre-overlay hold without firing its tap when UI captures key-up."""
+        state = self._states.get(key)
+        if state is None or state.phase not in {"down", "consumed"}:
+            return
+        state.sequence += 1
+        self._cancel(state.timer)
+        state.timer = None
+        state.phase = "idle"
+        state.hold_fired = False
+        state.suppress_tap = False
+        if self._momentary_owner == key:
+            self._momentary_layer = None
+            self._momentary_owner = None
+            self._notify_layer()
 
     def _double_timer(self, key: str, token: int) -> None:
         state = self._states.get(key)
@@ -262,6 +333,8 @@ class MappingEngine:
         menu.sequence += 1
         menu.phase = "consumed"
         self._notify_layer(force=True)
+        if self.on_escape:
+            self.on_escape()
         logger.info("escape hatch: returned to base layer")
 
     def _notify_layer(self, *, force: bool = False) -> None:

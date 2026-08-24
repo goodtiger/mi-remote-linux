@@ -8,7 +8,9 @@ import sys
 
 from .action_runner import LinuxActionRunner
 from .config import MappingConfig
+from .desktop import ApplicationTracker
 from .hid_engine import ButtonEvent, HIDEngine
+from .interactions import MouseMode, OverlayManager
 from .mapping_engine import MappingEngine
 
 
@@ -20,7 +22,19 @@ class RemoteKeyService:
         *,
         hid_engine: HIDEngine | None = None,
     ):
-        self.mapping = MappingEngine(config, runner.run, on_layer=self._on_layer)
+        self.runner = runner
+        self.overlay = OverlayManager(runner.desktop, runner)
+        self.mouse = MouseMode(runner, runner.desktop)
+        runner.overlay_handler = self.overlay.open
+        runner.mouse_mode_handler = self.mouse.toggle
+        self.mapping = MappingEngine(
+            config,
+            runner.run,
+            on_layer=self._on_layer,
+            on_escape=self._on_escape,
+            event_filter=self._filter_event,
+        )
+        self.tracker = ApplicationTracker(runner.desktop, self.mapping.set_active_application)
         self.hid = hid_engine or HIDEngine(
             self.mapping.handle,
             on_reset=self.mapping.reset,
@@ -28,15 +42,32 @@ class RemoteKeyService:
         )
 
     async def start(self) -> None:
-        await self.hid.start()
+        await self.tracker.start()
+        try:
+            await self.hid.start()
+        except BaseException:
+            await self.tracker.stop()
+            raise
 
     async def stop(self) -> None:
         await self.hid.stop()
+        await self.tracker.stop()
+        await self.mouse.deactivate()
+        await self.overlay.shutdown()
         await self.mapping.close()
 
-    @staticmethod
-    def _on_layer(layer: int) -> None:
+    def _on_layer(self, layer: int) -> None:
         print(f"🎛️  遥控器层: {layer}", file=sys.stderr, flush=True)
+        asyncio.create_task(self.overlay.show_layer(layer, self.mapping.active_profile))
+
+    def _filter_event(self, event: ButtonEvent) -> bool:
+        if self.overlay.handle(event):
+            return True
+        return self.mouse.handle(event)
+
+    def _on_escape(self) -> None:
+        asyncio.create_task(self.overlay.close("已紧急退出"))
+        asyncio.create_task(self.mouse.deactivate())
 
 
 class KeyWatchApp:
