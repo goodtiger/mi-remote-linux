@@ -136,7 +136,7 @@ class LinuxTextInjector:
         if self.paste_shortcut != "auto":
             return self.paste_shortcut
         if await self._active_window_is_terminal():
-            return "shift-insert"
+            return "ctrl-shift-v"
         return "ctrl-v"
 
     async def _active_window_is_terminal(self) -> bool:

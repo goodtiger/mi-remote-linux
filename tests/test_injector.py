@@ -87,13 +87,13 @@ async def test_x11_copies_utf8_then_pastes():
 
 
 @pytest.mark.asyncio
-async def test_auto_uses_shift_insert_for_terminal():
+async def test_auto_uses_ctrl_shift_v_for_terminal():
     injector = RecordingInjector(paste_shortcut="auto", terminal=True)
 
     await injector.inject("终端输入")
 
     assert injector.calls[-1] == (
-        ("wtype", "-M", "shift", "-k", "Insert", "-m", "shift"),
+        ("wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"),
         None,
     )
 

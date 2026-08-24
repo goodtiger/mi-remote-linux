@@ -155,6 +155,8 @@ quit
 ```
 
 stdout 只输出识别文本，状态和日志写到 stderr，便于交给其他程序消费。
+自动焦点输入在普通窗口使用 `Ctrl+V`，识别到终端窗口时使用 `Ctrl+Shift+V`；特殊应用
+可通过 `--paste-shortcut` 明确改为 `ctrl-v`、`ctrl-shift-v` 或 `shift-insert`。
 
 ### 安装诊断
 
