@@ -1,14 +1,16 @@
 # MiRemote Linux
 
-把小米蓝牙遥控器 2 Pro（RC003）接入 Linux。当前 Phase C 已实现 ATVV 语音采集、
-IMA ADPCM 解码、本地语音转写和 Linux 桌面焦点输入；Phase B 按键映射仍在计划中。
+把小米蓝牙遥控器 2 Pro（RC003）接入 Linux。当前已实现 ATVV 语音采集、IMA ADPCM
+解码、本地语音转写、Linux 桌面焦点输入，以及按设备隔离语音键 F9。
 
 ## 当前能力
 
 - 按住语音键说话，松手后把文字输出到 stdout
 - 在 Wayland 或 X11 下把中文自动粘贴到当前焦点
 - 可把转写结果同时追加到文本文件
-- 本地运行 Voxtype Paraformer 或 faster-whisper，不上传录音
+- 进程内常驻 Sherpa-ONNX Paraformer，也可回退 Voxtype CLI 或 faster-whisper
+- 自动发现已配对的 RC003，断线后持续重连
+- 只拦截 RC003 自己的 F9，不修改桌面快捷键或物理键盘行为
 - 兼容 ATVV v1 与旧 codec 字段布局
 - 兼容 120 字节裸音频帧和 126 字节带同步头音频帧
 
@@ -38,16 +40,23 @@ sudo pacman -S xclip xdotool
 sudo apt install xclip xdotool
 ```
 
-创建隔离环境并安装 faster-whisper 语音依赖：
+创建隔离环境并安装语音依赖：
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[voice]"
 ```
 
-默认 `--engine auto`：若系统已经安装 Voxtype 及 `paraformer-zh` 模型，就优先使用
-中文准确率更好的 Paraformer；否则使用 faster-whisper。首次使用 faster-whisper 时会
-下载所选模型，之后可离线运行。
+为获得更好的中文识别率，下载官方 Sherpa-ONNX Paraformer 模型（约 233 MiB）：
+
+```bash
+.venv/bin/python scripts/download_paraformer.py
+```
+
+默认 `--engine auto` 会优先把 Paraformer 模型加载到当前进程并持续复用；没有项目模型时
+也会复用 `$XDG_DATA_HOME/voxtype/models/paraformer-zh`，再回退 Voxtype CLI 或
+faster-whisper。首次使用 faster-whisper 时会下载所选模型，之后均可离线运行。也可通过
+`--paraformer-model-dir` 或 `MI_REMOTE_PARAFORMER_MODEL_DIR` 指定其他模型目录。
 
 也可以从项目根目录运行 `./scripts/setup.sh` 完成上述 Python 安装。
 
@@ -82,6 +91,7 @@ quit
 .venv/bin/mi-remote voice --address AA:BB:CC:DD:EE:FF --inject
 
 # 明确选择识别引擎
+.venv/bin/mi-remote voice --engine sherpa-paraformer --inject
 .venv/bin/mi-remote voice --engine voxtype-paraformer --inject
 .venv/bin/mi-remote voice --engine faster-whisper --model base --inject
 
@@ -90,6 +100,10 @@ quit
 ```
 
 stdout 只输出识别文本，状态和日志写到 stderr，便于交给其他程序消费。
+
+`--address` 是遥控器的蓝牙 MAC 地址，不是 IP 地址；通常可以省略。程序会从 BlueZ 已
+配对设备和广播中自动识别 RC003。遥控器休眠或临时断开后，进程会指数退避重连；同一用户
+只能启动一个 `mi-remote voice` 实例，避免两个进程争抢 BLE 语音通道。
 
 `--inject` 会自动根据 `WAYLAND_DISPLAY`/`DISPLAY` 选择图形后端：Wayland 使用
 `wl-copy + wtype`，X11 使用 `xclip + xdotool`。终端窗口使用 `Shift+Insert`，其他应用
@@ -106,21 +120,44 @@ Wayland 注入要求合成器支持 `wtype` 使用的虚拟键盘协议（Hyprla
 或切换到 X11 会话。Linux 没有一个不经桌面授权、适用于所有 Wayland 合成器的全局
 焦点输入接口。
 
-faster-whisper 会在启动后提前加载。Voxtype Paraformer 每次调用外部 CLI，本机实测首次
-载入约 0.92 秒、3 秒音频推理约 0.08 秒；它收到的是遥控器解码后的 16 kHz WAV，不会
-改用电脑麦克风。
+Sherpa-ONNX Paraformer 会在启动时加载一次并常驻复用。本机实测加载约 0.99 秒，之后
+1 秒静音推理约 0.04 秒；近静音录音会在识别前直接丢弃，避免误输入。Voxtype CLI 仍作为
+兼容回退。所有引擎收到的都是遥控器解码后的 16 kHz PCM，不会改用电脑麦克风。
 
 同一段遥控器真机录音对照结果（2026-08-24）：
 
 - faster-whisper base：`這是小米熬空機與銀蔬測試`
 - Voxtype Paraformer：`这是小米遥控器语音输入测试`
 
-因此中文输入推荐保留默认 `--engine auto`。Paraformer 是可选增强，不是项目的强制依赖。
+因此中文输入推荐保留默认 `--engine auto`。模型文件是可选下载项，缺失时仍可使用
+faster-whisper。
+
+## F9 隔离与权限
+
+RC003 的语音键会同时产生 ATVV 语音事件和 HID F9。默认 `--grab-hid safe` 只匹配
+RC003（VID `2717`、PID `32b8`）：独占其输入节点、丢弃 F9，并通过 uinput 原样转发其余
+按键。普通键盘的 F9 不会被打开或修改。如果无法创建 uinput，safe 模式不会独占共享
+节点；显式使用 `--grab-hid force` 可在这种情况下继续隔离 F9，但会暂时屏蔽该节点上的
+其他遥控器键。完全关闭隔离可使用 `--grab-hid off`。
+
+读取输入节点和创建过滤后的虚拟设备需要权限。推荐安装仓库提供的 udev 规则；其中 event
+节点规则只匹配 RC003，uinput 规则则授予 `input` 组使用虚拟输入设备的权限：
+
+```bash
+sudo install -m 0644 udev/99-mi-remote-linux.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=input
+sudo udevadm trigger --subsystem-match=misc --sysname-match=uinput
+```
+
+重新连接遥控器后规则生效。uinput 能模拟输入，属于敏感权限；也可以自行采用发行版的
+uinput 授权方案。项目不会自动安装 udev 规则，
+也不会修改 Hyprland、GNOME、KDE 或 Voxtype 的快捷键配置。
 
 ## 已知限制
 
-- RC003 的语音键还会通过 HID 产生 F9。如果桌面已把 F9 绑定到另一个语音输入程序，
-  两个程序可能同时响应。MiRemote 不会擅自修改或抢占全局 F9；使用前请自行避免冲突。
+- 某些 RC003 固件把 F9 与其他遥控器按键放在同一 event 节点；没有 uinput 权限时默认
+  safe 模式不会独占它，此时可安装规则或权衡后使用 `--grab-hid force`。
 - 部分 GNOME/KDE Wayland 会限制虚拟键盘协议，`--inject` 在这些环境中可能只能把结果
   保留到剪贴板/stdout。
 - `--inject` 会覆盖当前文本剪贴板；`--submit` 会额外发送 Enter，默认不开启。
@@ -128,7 +165,7 @@ faster-whisper 会在启动后提前加载。Voxtype Paraformer 每次调用外�
 ## 后台自启动
 
 仓库提供了 `systemd/mi-remote-voice.service.example`。复制到用户服务目录后，把其中的
-项目路径和遥控器 MAC 地址改成实际值：
+项目路径改成实际值；MAC 地址可以省略并自动发现：
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -141,7 +178,7 @@ systemctl --user enable --now mi-remote-voice.service
 journalctl --user -u mi-remote-voice.service -f
 ```
 
-常驻服务运行时不要再手动启动第二个 `mi-remote voice`；需要前台调试时先执行：
+程序本身会阻止第二个语音实例。需要前台调试时先执行：
 
 ```bash
 systemctl --user stop mi-remote-voice.service
@@ -157,16 +194,14 @@ systemctl --user stop mi-remote-voice.service
 ```
 
 当前自动化覆盖 ATVV 字段解析、握手音频状态、裸帧/带头帧、错位重同步、ADPCM
-跨批状态、PCM 后处理、语音会话隔离和 Wayland/X11 注入失败回退。实机验收步骤见
-[AGENTS.md](AGENTS.md)。
+跨批状态、PCM 后处理、常驻 Paraformer、静音保护、断线重连、单实例、RC003 设备级
+F9 隔离和 Wayland/X11 注入失败回退。实机验收步骤见 [AGENTS.md](AGENTS.md)。
 
 ## 开发路线
 
-1. Phase C：在 RC003 真机完成连续语音、焦点注入、固件兼容与断连验收
-2. Phase B：通过 evdev 读取 HID，加入 13 键映射、层、手势和宏
+1. Phase C：在 RC003 真机完成常驻 Paraformer、F9 隔离、自动重连压力验收
+2. Phase B：在现有 evdev 设备识别上加入 13 键映射、层、手势和宏
 3. Wayland/Hyprland 按键动作输出：优先 uinput/ydotool
-
-Phase B 开发时安装 `.[keys]` 可选依赖。
 
 ## 参考
 

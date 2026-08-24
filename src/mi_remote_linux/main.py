@@ -10,7 +10,9 @@ import numpy as np
 
 from .atvv import SyncFrame
 from .ble_client import ATVVClient
+from .hid_guard import HID_GRAB_MODES, RemoteHIDGuard
 from .injector import PASTE_SHORTCUTS, LinuxTextInjector, TextInjectionError
+from .runtime import AlreadyRunningError, VoiceInstanceLock
 from .voice import VoicePipeline
 
 logger = logging.getLogger(__name__)
@@ -29,12 +31,20 @@ class VoiceApp:
         language: str = "zh",
         engine: str = "auto",
         gain_db: float = 6.0,
+        paraformer_model_dir: str | None = None,
+        paraformer_threads: int = 2,
         output_file: str | None = None,
         injector: LinuxTextInjector | None = None,
+        hid_guard: RemoteHIDGuard | None = None,
+        reconnect_initial_delay: float = 1.0,
+        reconnect_max_delay: float = 15.0,
     ):
         self.address = address
         self.output_file = output_file
         self.injector = injector
+        self.hid_guard = hid_guard
+        self.reconnect_initial_delay = reconnect_initial_delay
+        self.reconnect_max_delay = reconnect_max_delay
 
         # 语音管道
         self.pipeline = VoicePipeline(
@@ -43,6 +53,8 @@ class VoiceApp:
             model_size=model_size,
             language=language,
             engine=engine,
+            paraformer_model_dir=paraformer_model_dir,
+            paraformer_threads=paraformer_threads,
         )
 
         # BLE 客户端
@@ -54,8 +66,8 @@ class VoiceApp:
             on_disconnected=self._on_disconnected,
         )
 
-        self._running = False
         self._stop_event: asyncio.Event | None = None
+        self._connection_lost_event: asyncio.Event | None = None
         self._transcription_lock: asyncio.Lock | None = None
         self._transcription_tasks: set[asyncio.Task[None]] = set()
 
@@ -127,9 +139,8 @@ class VoiceApp:
     def _on_disconnected(self) -> None:
         """BLE 断连回调。"""
         print("❌ 遥控器断开连接", file=sys.stderr, flush=True)
-        self._running = False
-        if self._stop_event:
-            self._stop_event.set()
+        if self._connection_lost_event:
+            self._connection_lost_event.set()
 
     async def _warmup_model(self) -> None:
         """低优先级预热模型；录音仍可在下载/加载期间开始。"""
@@ -146,8 +157,8 @@ class VoiceApp:
 
     async def run(self) -> None:
         """运行应用。"""
-        self._running = True
         self._stop_event = asyncio.Event()
+        self._connection_lost_event = asyncio.Event()
         self._transcription_lock = asyncio.Lock()
 
         loop = asyncio.get_running_loop()
@@ -156,25 +167,39 @@ class VoiceApp:
         except NotImplementedError:
             pass
 
-        print("正在连接遥控器...", file=sys.stderr, flush=True)
-
-        if not await self.client.connect(self.address):
-            print("连接失败，请确保：", file=sys.stderr)
-            print("  1. 蓝牙已开启", file=sys.stderr)
-            print("  2. 遥控器已配对（bluetoothctl pair <MAC>）", file=sys.stderr)
-            print("  3. 遥控器在范围内", file=sys.stderr)
-            return
-
         warmup_task = asyncio.create_task(self._warmup_model())
         self._transcription_tasks.add(warmup_task)
         warmup_task.add_done_callback(self._transcription_done)
 
+        if self.hid_guard:
+            await self.hid_guard.start()
+
         try:
-            while self._running and not self._stop_event.is_set():
-                try:
-                    await asyncio.wait_for(self._stop_event.wait(), timeout=0.1)
-                except TimeoutError:
-                    pass
+            retry_delay = self.reconnect_initial_delay
+            first_attempt = True
+            while not self._stop_event.is_set():
+                self._connection_lost_event.clear()
+                message = "正在连接遥控器..." if first_attempt else "正在重新连接遥控器..."
+                print(message, file=sys.stderr, flush=True)
+                first_attempt = False
+
+                if not await self.client.connect(self.address):
+                    print(
+                        f"将在 {retry_delay:.0f} 秒后重试连接",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    if await self._wait_for_stop(retry_delay):
+                        break
+                    retry_delay = min(retry_delay * 2, self.reconnect_max_delay)
+                    continue
+
+                retry_delay = self.reconnect_initial_delay
+                disconnected = await self._wait_for_stop_or_disconnect()
+                if not disconnected:
+                    break
+                await self.client.disconnect(restore_hid=False)
+                print("等待遥控器唤醒后自动重连", file=sys.stderr, flush=True)
         except asyncio.CancelledError:
             print("\n正在退出...", file=sys.stderr, flush=True)
             raise
@@ -183,9 +208,34 @@ class VoiceApp:
                 loop.remove_signal_handler(signal.SIGTERM)
             except NotImplementedError:
                 pass
-            await self.client.disconnect()
+            if self.hid_guard:
+                await self.hid_guard.stop()
+            await self.client.disconnect(restore_hid=True)
             if self._transcription_tasks:
                 await asyncio.gather(*self._transcription_tasks, return_exceptions=True)
+
+    async def _wait_for_stop(self, timeout: float) -> bool:
+        assert self._stop_event is not None
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=timeout)
+            return True
+        except TimeoutError:
+            return False
+
+    async def _wait_for_stop_or_disconnect(self) -> bool:
+        """返回 True 表示断连，False 表示用户要求停止。"""
+        assert self._stop_event is not None
+        assert self._connection_lost_event is not None
+        stop_task = asyncio.create_task(self._stop_event.wait())
+        lost_task = asyncio.create_task(self._connection_lost_event.wait())
+        done, pending = await asyncio.wait(
+            {stop_task, lost_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        return lost_task in done and lost_task.result()
 
 
 def cmd_voice(args: argparse.Namespace) -> None:
@@ -216,11 +266,18 @@ def cmd_voice(args: argparse.Namespace) -> None:
         language=args.language,
         engine=args.engine,
         gain_db=args.gain,
+        paraformer_model_dir=args.paraformer_model_dir,
+        paraformer_threads=args.paraformer_threads,
         output_file=args.output,
         injector=injector,
+        hid_guard=RemoteHIDGuard(mode=args.grab_hid),
     )
     try:
-        asyncio.run(app.run())
+        with VoiceInstanceLock():
+            asyncio.run(app.run())
+    except AlreadyRunningError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
     except KeyboardInterrupt:
         pass
 
@@ -259,9 +316,19 @@ def main() -> None:
     )
     voice_parser.add_argument(
         "--engine",
-        choices=["auto", "faster-whisper", "voxtype-paraformer"],
+        choices=["auto", "faster-whisper", "sherpa-paraformer", "voxtype-paraformer"],
         default="auto",
-        help="转写引擎；auto 优先本机 Paraformer（默认: auto）",
+        help="转写引擎；auto 优先常驻 Sherpa-ONNX Paraformer（默认: auto）",
+    )
+    voice_parser.add_argument(
+        "--paraformer-model-dir",
+        help="Paraformer 模型目录（默认查找 MiRemote 或 Voxtype 模型目录）",
+    )
+    voice_parser.add_argument(
+        "--paraformer-threads",
+        type=int,
+        default=2,
+        help="Sherpa-ONNX Paraformer CPU 线程数（默认: 2）",
     )
     voice_parser.add_argument(
         "-l",
@@ -280,6 +347,12 @@ def main() -> None:
         "-o",
         "--output",
         help="将转写结果追加到文件",
+    )
+    voice_parser.add_argument(
+        "--grab-hid",
+        choices=HID_GRAB_MODES,
+        default="safe",
+        help="隔离遥控器 F9：safe 保留其他键，force 在无 uinput 时仍可独占",
     )
     voice_parser.add_argument(
         "--inject",

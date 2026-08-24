@@ -5,10 +5,11 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-# Replace both the project path and Bluetooth address before installing.
-ExecStart=/home/YOUR_USER/work/mi-remote-linux/.venv/bin/mi-remote voice --address AA:BB:CC:DD:EE:FF --model base --language zh --inject
+# Replace the project path before installing. Address is optional because RC003 is auto-detected.
+ExecStart=/home/YOUR_USER/work/mi-remote-linux/.venv/bin/mi-remote voice --engine auto --grab-hid safe --inject
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=20
 
 [Install]
 WantedBy=graphical-session.target

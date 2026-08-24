@@ -126,8 +126,7 @@ class ATVVClient:
         self._connected_notified = False
         self._disconnected_notified = False
         self._suppress_disconnect_notification = False
-        self._was_connected_before_start = False
-        self._known_device_path: str | None = None
+        self._restore_device_path: str | None = None
         self._tasks: set[asyncio.Task[Any]] = set()
 
         self._accumulator = FrameAccumulator()
@@ -153,7 +152,7 @@ class ATVVClient:
         self._reset_connection_state()
 
         try:
-            device = await self._find_known_remote(address)
+            device = await asyncio.wait_for(self._find_known_remote(address), timeout=timeout)
             if device:
                 logger.info("使用 BlueZ 已知设备: %s (%s)", device.name or "?", device.address)
             elif address:
@@ -169,16 +168,19 @@ class ATVVClient:
             return False
 
         if isinstance(device.details, dict):
-            properties = device.details.get("props") or {}
-            self._was_connected_before_start = bool(properties.get("Connected"))
-            self._known_device_path = device.details.get("path")
+            known_device_path = device.details.get("path")
+            if known_device_path:
+                self._restore_device_path = known_device_path
 
         logger.info("连接遥控器: %s (%s)", device.name or "?", device.address)
         client = BleakClient(device, disconnected_callback=self._handle_disconnected)
         self.client = client
 
         try:
-            await client.connect()
+            try:
+                await asyncio.wait_for(client.connect(), timeout=timeout)
+            except TimeoutError as exc:
+                raise RuntimeError(f"BLE 连接超时（{timeout:.1f}s）") from exc
             self._connection_active = True
             logger.info("BLE 连接成功")
 
@@ -214,18 +216,31 @@ class ATVVClient:
             return True
         except Exception as exc:  # noqa: BLE001 - 统一收敛 bleak/DBus 连接错误
             logger.error("连接失败: %s", exc)
-            await self.disconnect()
+            await self.disconnect(restore_hid=False)
             return False
 
-    async def disconnect(self) -> None:
-        """主动断开，并恢复启动前由 HID 持有的系统连接。"""
+    async def disconnect(self, *, restore_hid: bool = True, timeout: float = 5.0) -> None:
+        """在有界时间内主动断开；最终退出时恢复 BlueZ/HID 系统连接。"""
         client = self.client
         self._suppress_disconnect_notification = True
         if client and client.is_connected:
-            await client.disconnect()
-            logger.info("已断开 ATVV 客户端")
-        if self._was_connected_before_start and self._known_device_path:
-            await self._restore_bluez_connection(self._known_device_path)
+            try:
+                await asyncio.wait_for(client.disconnect(), timeout=timeout)
+                logger.info("已断开 ATVV 客户端")
+            except TimeoutError:
+                logger.warning("ATVV 客户端断开超时（%.1fs），继续清理", timeout)
+            except Exception as exc:  # noqa: BLE001 - bleak 后端异常类型随平台变化
+                logger.warning("ATVV 客户端断开失败，继续清理: %s", exc)
+        if restore_hid and self._restore_device_path:
+            try:
+                await asyncio.wait_for(
+                    self._restore_bluez_connection(self._restore_device_path),
+                    timeout=10.0,
+                )
+            except TimeoutError:
+                logger.warning("恢复遥控器 BlueZ/HID 连接总超时")
+            except Exception as exc:  # noqa: BLE001 - D-Bus 异常类型随平台变化
+                logger.warning("恢复遥控器 BlueZ/HID 连接失败: %s", exc)
         self._cancel_tasks()
         self.client = None
         self._connection_active = False
@@ -535,8 +550,6 @@ class ATVVClient:
         self._connected_notified = False
         self._disconnected_notified = False
         self._suppress_disconnect_notification = False
-        self._was_connected_before_start = False
-        self._known_device_path = None
         self._pending_sync = None
         self._header_mode = False
         self._frame_format_probed = False

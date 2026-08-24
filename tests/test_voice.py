@@ -1,10 +1,12 @@
 """语音会话生命周期测试（不加载真实 Whisper 模型）。"""
 
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import numpy as np
 
+import mi_remote_linux.voice as voice_module
 from mi_remote_linux.atvv import SyncFrame
 from mi_remote_linux.voice import VoicePipeline
 
@@ -65,9 +67,24 @@ def test_transcribe_uses_injected_model_and_joins_segments():
     assert pipeline.transcribe(np.array([0, 32767], dtype=np.int16)) == "你好，Linux"
 
 
-def test_auto_prefers_installed_voxtype_paraformer(tmp_path):
+def test_auto_prefers_persistent_sherpa_paraformer(tmp_path, monkeypatch):
     (tmp_path / "model.int8.onnx").touch()
     (tmp_path / "tokens.txt").touch()
+    monkeypatch.setattr(voice_module, "find_spec", lambda _name: object())
+
+    pipeline = VoicePipeline(
+        engine="auto",
+        voxtype_path="/usr/bin/voxtype",
+        voxtype_model_dir=tmp_path,
+    )
+
+    assert pipeline.active_engine == "sherpa-paraformer"
+
+
+def test_auto_uses_voxtype_when_sherpa_is_not_installed(tmp_path, monkeypatch):
+    (tmp_path / "model.int8.onnx").touch()
+    (tmp_path / "tokens.txt").touch()
+    monkeypatch.setattr(voice_module, "find_spec", lambda _name: None)
 
     pipeline = VoicePipeline(
         engine="auto",
@@ -78,7 +95,8 @@ def test_auto_prefers_installed_voxtype_paraformer(tmp_path):
     assert pipeline.active_engine == "voxtype-paraformer"
 
 
-def test_auto_falls_back_to_whisper_without_paraformer(tmp_path):
+def test_auto_falls_back_to_whisper_without_paraformer(tmp_path, monkeypatch):
+    monkeypatch.setattr(voice_module, "find_spec", lambda _name: object())
     pipeline = VoicePipeline(
         engine="auto",
         voxtype_path="/usr/bin/voxtype",
@@ -86,6 +104,71 @@ def test_auto_falls_back_to_whisper_without_paraformer(tmp_path):
     )
 
     assert pipeline.active_engine == "faster-whisper"
+
+
+def test_sherpa_model_is_loaded_once_and_reused(tmp_path, monkeypatch):
+    (tmp_path / "model.int8.onnx").touch()
+    (tmp_path / "tokens.txt").touch()
+    created = []
+
+    class FakeStream:
+        def __init__(self):
+            self.result = SimpleNamespace(text=" 常驻识别 ")
+
+        def accept_waveform(self, sample_rate, audio):
+            assert sample_rate == 16000
+            assert audio.dtype == np.float32
+
+    class FakeRecognizer:
+        def create_stream(self):
+            return FakeStream()
+
+        def decode_stream(self, _stream):
+            pass
+
+    class FakeOfflineRecognizer:
+        @staticmethod
+        def from_paraformer(**kwargs):
+            assert kwargs["num_threads"] == 3
+            created.append(kwargs)
+            return FakeRecognizer()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sherpa_onnx",
+        SimpleNamespace(OfflineRecognizer=FakeOfflineRecognizer),
+    )
+    pipeline = VoicePipeline(
+        engine="sherpa-paraformer",
+        voxtype_model_dir=tmp_path,
+        paraformer_threads=3,
+    )
+    samples = np.array([100, -100], dtype=np.int16)
+
+    assert pipeline.transcribe(samples) == "常驻识别"
+    assert pipeline.transcribe(samples) == "常驻识别"
+    assert len(created) == 1
+
+
+def test_near_silence_is_ignored_before_loading_model():
+    pipeline = VoicePipeline(minimum_rms=25)
+
+    assert pipeline.transcribe(np.zeros(16000, dtype=np.int16)) is None
+    assert pipeline._whisper_model is None
+
+
+def test_project_model_directory_is_discovered(tmp_path, monkeypatch):
+    model_dir = tmp_path / "mi-remote-linux/models/paraformer-zh"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.int8.onnx").touch()
+    (model_dir / "tokens.txt").touch()
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr(voice_module, "find_spec", lambda _name: object())
+
+    pipeline = VoicePipeline(engine="auto")
+
+    assert pipeline.active_engine == "sherpa-paraformer"
+    assert pipeline._paraformer_model_dir == model_dir
 
 
 def test_voxtype_transcription_uses_last_nonempty_output_line(tmp_path, monkeypatch):

@@ -1,5 +1,6 @@
 """不连接真实硬件的 ATVV BLE 状态机测试。"""
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -152,11 +153,26 @@ async def test_disconnect_restores_preexisting_hid_connection():
     client = ATVVClient()
     fake_client = FakeBleakClient()
     client.client = fake_client
-    client._was_connected_before_start = True
-    client._known_device_path = "/org/bluez/hci0/dev_AA"
+    client._restore_device_path = "/org/bluez/hci0/dev_AA"
     client._restore_bluez_connection = AsyncMock()
 
     await client.disconnect()
 
     assert fake_client.disconnect_calls == 1
     client._restore_bluez_connection.assert_awaited_once_with("/org/bluez/hci0/dev_AA")
+
+
+@pytest.mark.asyncio
+async def test_disconnect_timeout_does_not_block_cleanup():
+    client = ATVVClient()
+    fake_client = FakeBleakClient()
+
+    async def never_disconnect():
+        await asyncio.Event().wait()
+
+    fake_client.disconnect = never_disconnect
+    client.client = fake_client
+
+    await client.disconnect(timeout=0.001)
+
+    assert client.client is None

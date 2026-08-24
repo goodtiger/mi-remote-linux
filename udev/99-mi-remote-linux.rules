@@ -1,0 +1,4 @@
+# Grant the active desktop session access only to Xiaomi RC003 input event nodes.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="2717", ATTRS{idProduct}=="32b8", TAG+="uaccess"
+# Shared input nodes need a filtered virtual device to forward every key except F9.
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

@@ -26,16 +26,15 @@ classifiers = [
 dependencies = [
     "bleak>=0.21.0",
     "dbus-fast>=1.83.0",
+    "evdev>=1.6.0",
     "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
 voice = [
     "faster-whisper>=0.10.0",
+    "sherpa-onnx>=1.13.6,<2",
     "socksio>=1.0.0",
-]
-keys = [
-    "evdev>=1.6.0",
 ]
 dev = [
     "build>=1.2.0",

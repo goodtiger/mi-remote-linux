@@ -24,7 +24,8 @@
 5. `injector.py` — Wayland/X11 后端，把 UTF-8 文本粘贴到当前焦点
 6. `main.py` — CLI 入口，按住说话松手发送
 
-**当前状态（2026-08-24）**：Phase C 核心链路和焦点输入已实现并通过自动化；Phase B 尚未开始实现。
+**当前状态（2026-08-24）**：Phase C 核心链路、常驻 Paraformer、焦点输入、设备级
+F9 隔离、单实例和 BLE 自动重连已实现并通过自动化；Phase B 完整按键映射尚未实现。
 
 真机结果：BlueZ 已连接设备发现、ATVV v1 CAPS、120 字节裸帧、三次连续录音、
 ADPCM→PCM、tiny Whisper 下载/转写、MIC_CLOSE 和 Ctrl+C 后恢复 HID 连接均通过。
@@ -56,14 +57,17 @@ ADPCM→PCM、tiny Whisper 下载/转写、MIC_CLOSE 和 Ctrl+C 后恢复 HID �
 1. 在 Linux/BlueZ 下完成 RC003 配对、信任和连接
 2. 验证 CAPS → MIC_OPEN → AUDIO_START/SYNC → AUDIO_STOP/MIC_CLOSE 真机时序
 3. 分别验证 120 字节裸帧与 126 字节带头帧（若固件提供）
-4. 验证 5 次连续语音会话、断连提示和 Ctrl+C 正常退出
-5. 在隔离测试窗口验证中文注入，再验证常用终端、浏览器输入框和编辑器
-6. 记录 `mi-remote -v voice --inject` 日志后再进入 Phase B
+4. 验证 5 次连续语音会话、常驻模型延迟和静音不误输入
+5. 验证遥控器 F9 被隔离但物理键盘 F9 保持原有行为
+6. 验证遥控器休眠/唤醒自动重连、第二实例拒绝启动和 Ctrl+C 有界退出
+7. 在隔离测试窗口验证中文注入，再验证常用终端、浏览器输入框和编辑器
+8. 记录 `mi-remote -v voice --inject` 日志后再进入 Phase B
 
 **按键处理**：
 - Linux 蓝牙配对后，HID 按键自动映射为 `/dev/input/event*`
 - 可用 `evdev` 库读取，无需自己实现 BLE HID 解析
-- 语音键同时触发 HID 事件（F5）和 ATVV 协议（0x08），用 ATVV 侧控制语音生命周期
+- 语音键同时触发 HID 事件（RC003 当前固件为 F9）和 ATVV 协议（0x08），用 ATVV 侧
+  控制语音生命周期；`hid_guard.py` 按 VID/PID 隔离 F9，不修改物理键盘或桌面配置
 
 ### Phase B：完整按键映射
 
@@ -81,7 +85,7 @@ ADPCM→PCM、tiny Whisper 下载/转写、MIC_CLOSE 和 Ctrl+C 后恢复 HID �
 - `bleak` — BLE GATT 客户端
 - `evdev` — Linux 输入设备读取
 - `numpy` — ADPCM 解码加速（可选）
-- `Voxtype Paraformer`（中文优先）或 `faster-whisper` — 本地语音转写
+- `Sherpa-ONNX Paraformer`（中文优先）、Voxtype CLI 或 `faster-whisper` — 本地语音转写
 - `ydotool` — Wayland 兼容按键模拟（Hyprland 用户）
 
 ## 文件结构
@@ -100,6 +104,8 @@ mi-remote-linux/
 │       ├── adpcm.py       # IMA ADPCM 解码器
 │       ├── voice.py       # 语音转写管道
 │       ├── injector.py    # Wayland 当前焦点文本注入
+│       ├── hid_guard.py   # RC003 F9 过滤与其他键 uinput 转发
+│       ├── runtime.py     # 语音进程单实例锁
 │       ├── hid.py         # evdev HID 读取（Phase B，计划）
 │       ├── mapping.py     # 按键映射引擎（Phase B，计划）
 │       └── actions.py     # 动作执行器（Phase B，计划）
@@ -113,7 +119,8 @@ mi-remote-linux/
 ├── systemd/
 │   └── mi-remote-voice.service.example
 └── scripts/
-    └── setup.sh           # 环境安装脚本
+    ├── download_paraformer.py # Paraformer 模型下载脚本
+    └── setup.sh               # 环境安装脚本
 ```
 
 ## 开发规范
@@ -130,4 +137,5 @@ mi-remote-linux/
 - 首次使用需要 `bluetoothctl` 手动配对遥控器（同时长按 菜单键 + HOME）
 - Wayland 焦点输入使用 wl-copy + wtype，X11 使用 xclip + xdotool
 - 不修改桌面快捷键；终端检测失败时通过 `--paste-shortcut` 显式选择粘贴组合键
-- CLI 默认 `--engine auto`：优先可用的 Voxtype Paraformer，否则回退 faster-whisper base
+- CLI 默认 `--engine auto`：优先常驻 Sherpa-ONNX Paraformer，再回退 Voxtype CLI 或
+  faster-whisper base
