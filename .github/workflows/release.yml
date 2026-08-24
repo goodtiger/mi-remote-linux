@@ -40,7 +40,7 @@ jobs:
           python -m build
           twine check dist/*
           cp scripts/install_release.py dist/install-mi-remote.py
-          sha256sum dist/*.whl dist/*.tar.gz dist/install-mi-remote.py > dist/SHA256SUMS
+          (cd dist && sha256sum *.whl *.tar.gz install-mi-remote.py > SHA256SUMS)
       - name: Smoke-test built wheel
         run: |
           python -m venv /tmp/mi-remote-release-smoke

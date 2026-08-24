@@ -63,7 +63,8 @@ def test_release_workflow_has_publish_guards_and_artifact_checks():
     assert "python scripts/check_release.py" in workflow
     assert "pytest -q" in workflow
     assert "twine check dist/*" in workflow
-    assert "sha256sum" in workflow
+    assert "(cd dist && sha256sum *.whl *.tar.gz install-mi-remote.py > SHA256SUMS)" in workflow
+    assert "sha256sum dist/" not in workflow
     assert "install_release.py dist/install-mi-remote.py" in workflow
     assert "actions/upload-artifact@v4" in workflow
     assert "gh release create" in workflow
