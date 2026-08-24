@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 class VoicePipeline:
     """保留跨帧解码状态，并在会话结束后转写冻结的 PCM。"""
 
+    STARTUP_TRIM_SECONDS = 0.25
+    VAD_FRAME_SECONDS = 0.02
+    MINIMUM_SPEECH_FRAME_RATIO = 0.12
+    MINIMUM_SPEECH_FRAME_RMS_BEFORE_GAIN = 150.0
+    MINIMUM_SPEECH_FRAME_ZCR = 0.008
+
     def __init__(
         self,
         sample_rate: int = 16000,
@@ -34,6 +40,7 @@ class VoicePipeline:
         paraformer_model_dir: str | Path | None = None,
         paraformer_threads: int = 2,
         minimum_rms: float = 25.0,
+        save_audio_dir: str | Path | None = None,
     ):
         if engine not in {
             "auto",
@@ -52,6 +59,7 @@ class VoicePipeline:
         self.engine = engine
         self.paraformer_threads = paraformer_threads
         self.minimum_rms = minimum_rms
+        self.save_audio_dir = Path(save_audio_dir).expanduser() if save_audio_dir else None
         self._voxtype_path = shutil.which("voxtype") if voxtype_path is None else voxtype_path
         if voxtype_model_dir is not None and paraformer_model_dir is not None:
             raise ValueError("不能同时指定 voxtype_model_dir 和 paraformer_model_dir")
@@ -64,6 +72,7 @@ class VoicePipeline:
         self._last_samples: np.ndarray | None = None
         self._whisper_model = None
         self._sherpa_recognizer = None
+        self._capture_count = 0
 
     def _select_engine(self) -> str:
         if self.engine == "auto":
@@ -190,9 +199,20 @@ class VoicePipeline:
 
     def transcribe(self, samples: np.ndarray) -> str | None:
         """阻塞式本地转写；调用方应放在线程中，避免阻塞 BLE 事件循环。"""
-        rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2))) if len(samples) else 0.0
-        if rms < self.minimum_rms:
-            logger.info("录音能量过低（RMS %.1f < %.1f），忽略", rms, self.minimum_rms)
+        if self.save_audio_dir:
+            self._capture_count += 1
+            path = self.save_audio_dir / f"capture-{self._capture_count:03d}.wav"
+            try:
+                self.save_audio_dir.mkdir(parents=True, exist_ok=True)
+                while path.exists():
+                    self._capture_count += 1
+                    path = self.save_audio_dir / f"capture-{self._capture_count:03d}.wav"
+                self.save_wav(path, samples)
+            except OSError as exc:
+                logger.warning("保存调试录音失败: %s", exc)
+
+        prepared = self._prepare_for_recognition(samples)
+        if prepared is None:
             return None
 
         if not self.load_model():
@@ -200,7 +220,7 @@ class VoicePipeline:
 
         if self.active_engine == "sherpa-paraformer":
             try:
-                return self._transcribe_sherpa(samples)
+                return self._transcribe_sherpa(prepared)
             except Exception as exc:  # noqa: BLE001 - ONNX 后端异常类型随平台变化
                 if self.engine != "auto":
                     logger.error("Sherpa-ONNX Paraformer 转写失败: %s", exc)
@@ -211,7 +231,7 @@ class VoicePipeline:
 
         if self.active_engine == "voxtype-paraformer":
             try:
-                return self._transcribe_voxtype(samples)
+                return self._transcribe_voxtype(prepared)
             except (OSError, subprocess.SubprocessError) as exc:
                 if self.engine != "auto":
                     logger.error("Voxtype Paraformer 转写失败: %s", exc)
@@ -221,7 +241,39 @@ class VoicePipeline:
                 if not self.load_model():
                     return None
 
-        return self._transcribe_whisper(samples)
+        return self._transcribe_whisper(prepared)
+
+    def _prepare_for_recognition(self, samples: np.ndarray) -> np.ndarray | None:
+        """去掉 ADPCM 状态收敛前导，并用分帧特征过滤近静音录音。"""
+        trim_samples = round(self.sample_rate * self.STARTUP_TRIM_SECONDS)
+        prepared = samples[trim_samples:]
+        frame_size = round(self.sample_rate * self.VAD_FRAME_SECONDS)
+        frame_count = len(prepared) // frame_size
+        if frame_count == 0:
+            logger.info("录音去除 %.2fs 前导后过短，忽略", self.STARTUP_TRIM_SECONDS)
+            return None
+
+        framed = prepared[: frame_count * frame_size].astype(np.float64).reshape(-1, frame_size)
+        frame_rms = np.sqrt(np.mean(framed**2, axis=1))
+        zero_crossing_rate = np.mean(np.diff(np.signbit(framed), axis=1), axis=1)
+        rms_threshold = self.MINIMUM_SPEECH_FRAME_RMS_BEFORE_GAIN * self.postprocessor.gain
+        speech_frames = (frame_rms >= rms_threshold) & (
+            zero_crossing_rate >= self.MINIMUM_SPEECH_FRAME_ZCR
+        )
+        speech_ratio = float(np.mean(speech_frames))
+        rms = float(np.sqrt(np.mean(framed**2)))
+        peak = float(np.max(np.abs(framed)))
+        logger.info(
+            "录音特征（去除 %.2fs 前导）: RMS %.1f，峰值 %.0f，语音帧 %.1f%%",
+            self.STARTUP_TRIM_SECONDS,
+            rms,
+            peak,
+            speech_ratio * 100,
+        )
+        if rms < self.minimum_rms or speech_ratio < self.MINIMUM_SPEECH_FRAME_RATIO:
+            logger.info("未检测到持续语音，忽略")
+            return None
+        return prepared
 
     def _transcribe_sherpa(self, samples: np.ndarray) -> str | None:
         assert self._sherpa_recognizer is not None

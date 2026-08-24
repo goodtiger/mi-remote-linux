@@ -87,6 +87,9 @@ quit
 # 同时追加保存转写文本
 .venv/bin/mi-remote voice --output transcript.txt
 
+# 调试时保存每段解码后的 WAV（默认不会保存录音）
+.venv/bin/mi-remote voice --save-audio-dir debug-audio
+
 # 转写后自动粘贴到当前焦点（推荐）
 .venv/bin/mi-remote voice --address AA:BB:CC:DD:EE:FF --inject
 
@@ -121,8 +124,12 @@ Wayland 注入要求合成器支持 `wtype` 使用的虚拟键盘协议（Hyprla
 焦点输入接口。
 
 Sherpa-ONNX Paraformer 会在启动时加载一次并常驻复用。本机实测加载约 0.99 秒，之后
-1 秒静音推理约 0.04 秒；近静音录音会在识别前直接丢弃，避免误输入。Voxtype CLI 仍作为
-兼容回退。所有引擎收到的都是遥控器解码后的 16 kHz PCM，不会改用电脑麦克风。
+1 秒音频推理约 0.04 秒。RC003 裸 ADPCM 流开头约 0.20 秒是解码状态收敛前导，程序会
+丢弃前 0.25 秒，并用 20ms 分帧语音活动检测拦截近静音录音。Voxtype CLI 仍作为兼容
+回退。所有引擎收到的都是遥控器解码后的 16 kHz PCM，不会改用电脑麦克风。
+
+`--save-audio-dir` 只用于诊断识别问题，启用后会保留未经前导裁剪的 WAV，并避免覆盖目录
+中已有的录音。录音可能包含敏感语音，分析后请自行删除；默认不会把音频写入磁盘。
 
 同一段遥控器真机录音对照结果（2026-08-24）：
 

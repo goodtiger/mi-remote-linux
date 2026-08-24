@@ -33,6 +33,7 @@ class VoiceApp:
         gain_db: float = 6.0,
         paraformer_model_dir: str | None = None,
         paraformer_threads: int = 2,
+        save_audio_dir: str | None = None,
         output_file: str | None = None,
         injector: LinuxTextInjector | None = None,
         hid_guard: RemoteHIDGuard | None = None,
@@ -55,6 +56,7 @@ class VoiceApp:
             engine=engine,
             paraformer_model_dir=paraformer_model_dir,
             paraformer_threads=paraformer_threads,
+            save_audio_dir=save_audio_dir,
         )
 
         # BLE 客户端
@@ -268,6 +270,7 @@ def cmd_voice(args: argparse.Namespace) -> None:
         gain_db=args.gain,
         paraformer_model_dir=args.paraformer_model_dir,
         paraformer_threads=args.paraformer_threads,
+        save_audio_dir=args.save_audio_dir,
         output_file=args.output,
         injector=injector,
         hid_guard=RemoteHIDGuard(mode=args.grab_hid),
@@ -347,6 +350,10 @@ def main() -> None:
         "-o",
         "--output",
         help="将转写结果追加到文件",
+    )
+    voice_parser.add_argument(
+        "--save-audio-dir",
+        help="把每次解码后的 WAV 保存到指定目录（仅用于调试）",
     )
     voice_parser.add_argument(
         "--grab-hid",

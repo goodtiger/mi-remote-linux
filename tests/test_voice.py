@@ -11,6 +11,12 @@ from mi_remote_linux.atvv import SyncFrame
 from mi_remote_linux.voice import VoicePipeline
 
 
+def voiced_samples() -> np.ndarray:
+    startup = np.zeros(4000, dtype=np.int16)
+    voiced = np.tile(np.array([-800, 800], dtype=np.int16), 8000)
+    return np.concatenate([startup, voiced])
+
+
 def test_new_voice_session_resets_decoder_and_postprocessor():
     pipeline = VoicePipeline()
     pipeline.decoder.reset(1234, 40)
@@ -64,7 +70,7 @@ def test_transcribe_uses_injected_model_and_joins_segments():
     pipeline = VoicePipeline()
     pipeline._whisper_model = FakeModel()
 
-    assert pipeline.transcribe(np.array([0, 32767], dtype=np.int16)) == "你好，Linux"
+    assert pipeline.transcribe(voiced_samples()) == "你好，Linux"
 
 
 def test_auto_prefers_persistent_sherpa_paraformer(tmp_path, monkeypatch):
@@ -143,7 +149,7 @@ def test_sherpa_model_is_loaded_once_and_reused(tmp_path, monkeypatch):
         voxtype_model_dir=tmp_path,
         paraformer_threads=3,
     )
-    samples = np.array([100, -100], dtype=np.int16)
+    samples = voiced_samples()
 
     assert pipeline.transcribe(samples) == "常驻识别"
     assert pipeline.transcribe(samples) == "常驻识别"
@@ -155,6 +161,25 @@ def test_near_silence_is_ignored_before_loading_model():
 
     assert pipeline.transcribe(np.zeros(16000, dtype=np.int16)) is None
     assert pipeline._whisper_model is None
+
+
+def test_voice_gate_rejects_startup_transient_followed_by_noise():
+    pipeline = VoicePipeline(gain_db=6)
+    startup = np.full(4000, 8000, dtype=np.int16)
+    low_noise = np.tile(np.array([-100, 100], dtype=np.int16), 16000)
+
+    assert pipeline._prepare_for_recognition(np.concatenate([startup, low_noise])) is None
+
+
+def test_voice_gate_keeps_sustained_speech_after_startup_trim():
+    pipeline = VoicePipeline(gain_db=6)
+    startup = np.full(4000, 8000, dtype=np.int16)
+    voiced = np.tile(np.array([-800, 800], dtype=np.int16), 16000)
+
+    prepared = pipeline._prepare_for_recognition(np.concatenate([startup, voiced]))
+
+    assert prepared is not None
+    np.testing.assert_array_equal(prepared, voiced)
 
 
 def test_project_model_directory_is_discovered(tmp_path, monkeypatch):
@@ -169,6 +194,24 @@ def test_project_model_directory_is_discovered(tmp_path, monkeypatch):
 
     assert pipeline.active_engine == "sherpa-paraformer"
     assert pipeline._paraformer_model_dir == model_dir
+
+
+def test_debug_audio_is_saved_only_when_directory_is_configured(tmp_path):
+    pipeline = VoicePipeline(save_audio_dir=tmp_path, minimum_rms=1000)
+
+    assert pipeline.transcribe(np.array([1, -1], dtype=np.int16)) is None
+
+    assert (tmp_path / "capture-001.wav").is_file()
+
+
+def test_debug_audio_does_not_overwrite_existing_capture(tmp_path):
+    (tmp_path / "capture-001.wav").write_bytes(b"existing")
+    pipeline = VoicePipeline(save_audio_dir=tmp_path, minimum_rms=1000)
+
+    assert pipeline.transcribe(np.array([1, -1], dtype=np.int16)) is None
+
+    assert (tmp_path / "capture-001.wav").read_bytes() == b"existing"
+    assert (tmp_path / "capture-002.wav").is_file()
 
 
 def test_voxtype_transcription_uses_last_nonempty_output_line(tmp_path, monkeypatch):
@@ -192,6 +235,6 @@ def test_voxtype_transcription_uses_last_nonempty_output_line(tmp_path, monkeypa
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    text = pipeline.transcribe(np.array([0, 100, -100], dtype=np.int16))
+    text = pipeline.transcribe(voiced_samples())
 
     assert text == "这是小米遥控器语音输入测试"
