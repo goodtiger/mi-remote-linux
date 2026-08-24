@@ -14,6 +14,9 @@ def test_example_config_loads_all_remote_keys():
     assert config.bindings["back"].hold is None
     assert "ghostty" in config.profiles
     assert config.profile_apps["chrome"]
+    assert config.profiles["ghostty"]["back"].tap.key == "backspace"
+    assert config.profiles["codex"]["back"].tap.key == "backspace"
+    assert config.profiles["claude"]["back"].tap.key == "backspace"
 
 
 @pytest.mark.parametrize(

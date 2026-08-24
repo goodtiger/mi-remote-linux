@@ -154,7 +154,7 @@
         "layers": {"1": {"type": "key_stroke", "key": "return", "mods": ["ctrl", "shift"]}}
       },
       "back": {
-        "tap": {"type": "key_stroke", "key": "escape"},
+        "tap": {"type": "key_stroke", "key": "backspace"},
         "hold": {"type": "key_stroke", "key": "u", "mods": ["ctrl"]}
       },
       "home": {"layers": {"2": {"type": "focus_input"}}}
@@ -165,7 +165,7 @@
       "up": {"tap": {"type": "key_stroke", "key": "up_arrow"}},
       "down": {"tap": {"type": "key_stroke", "key": "down_arrow"}},
       "ok": {"tap": {"type": "key_stroke", "key": "return"}},
-      "back": {"tap": {"type": "key_stroke", "key": "escape"}},
+      "back": {"tap": {"type": "key_stroke", "key": "backspace"}},
       "home": {"layers": {"2": {"type": "focus_input"}}}
     },
     "chatgpt": {
@@ -185,7 +185,7 @@
       "up": {"tap": {"type": "key_stroke", "key": "up_arrow"}},
       "down": {"tap": {"type": "key_stroke", "key": "down_arrow"}},
       "ok": {"tap": {"type": "key_stroke", "key": "return"}},
-      "back": {"tap": {"type": "key_stroke", "key": "escape"}},
+      "back": {"tap": {"type": "key_stroke", "key": "backspace"}},
       "home": {"layers": {"2": {"type": "focus_input"}}}
     },
     "chrome": {

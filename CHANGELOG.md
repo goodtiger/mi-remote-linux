@@ -9,6 +9,8 @@
 - Hyprland 优先使用原生焦点按键事件，修复 foot 等终端中 `wtype` 成功返回但方向键、
   返回键和语音粘贴未生效的问题，并保留 `wtype`/`ydotool` 回退。
 - 终端自动粘贴与 Omarchy 策略保持一致，改用 `Shift+Insert`。
+- Ghostty/foot、Codex 和 Claude profile 的返回键短按改为 `Backspace`，便于在 AI TUI
+  输入行中逐字删除；App 控制层仍保留 `Escape`。
 
 ## [0.4.0] - 2026-08-24
 
