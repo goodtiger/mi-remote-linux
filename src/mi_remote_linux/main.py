@@ -8,6 +8,7 @@ import sys
 
 import numpy as np
 
+from . import __version__
 from .action_runner import LinuxActionRunner
 from .atvv import SyncFrame
 from .ble_client import ATVVClient
@@ -526,6 +527,11 @@ def main() -> None:
         "--verbose",
         action="store_true",
         help="启用详细日志",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="子命令")

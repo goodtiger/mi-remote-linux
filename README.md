@@ -48,6 +48,29 @@ sudo pacman -S xclip xdotool
 sudo apt install xclip xdotool
 ```
 
+## 安装与升级
+
+正式 Release 提供经过 SHA-256 校验的用户级安装器。它把每个版本安装到
+`$XDG_DATA_HOME/mi-remote-linux/versions/` 的独立 venv，并原子切换
+`$XDG_BIN_HOME/mi-remote`（未设置时分别使用 `~/.local/share` 和 `~/.local/bin`）。
+安装器不会覆盖不属于 MiRemote 的同名命令，也不会删除旧版本。
+
+```bash
+curl -fL -o /tmp/install-mi-remote.py \
+  https://github.com/goodtiger/mi-remote-linux/releases/download/v0.4.0/install-mi-remote.py
+
+# 先预览，不下载、不写入
+python3 /tmp/install-mi-remote.py --version v0.4.0 --dry-run
+
+# 安装完整语音依赖；升级时改成新的版本号并重新运行
+python3 /tmp/install-mi-remote.py --version v0.4.0
+```
+
+确保 `~/.local/bin` 在 `PATH` 后，运行 `mi-remote doctor` 检查桌面依赖和权限。只需要
+按键功能或想自行管理语音后端时可加 `--no-voice`。
+
+### 从源码安装
+
 创建隔离环境并安装语音依赖：
 
 ```bash
@@ -433,7 +456,8 @@ systemctl --user stop mi-remote-voice.service
 5. `mi-remote test` 交互式真机验收和 JSON 报告（已完成）
 6. 安全的用户级 systemd 服务预览、安装、状态和卸载（已完成）
 7. Paraformer 模型状态、SHA-256 校验和安全原子下载（已完成）
-8. 后续：正式发行包、更多合成器兼容矩阵和原生 GUI
+8. 统一版本、校验安装器和 GitHub Release 自动化（已完成）
+9. 后续：更多合成器兼容矩阵和原生 GUI
 
 ## 参考
 

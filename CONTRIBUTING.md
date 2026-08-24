@@ -16,3 +16,6 @@ python3 -m venv .venv
 的修改，请在 PR 中注明遥控器型号、固件表现、Linux 发行版、BlueZ 版本及桌面会话类型。
 
 请勿提交蓝牙 MAC、访问令牌、录音、模型文件、崩溃转储或其他个人数据。
+
+维护者发布步骤见 [docs/RELEASING.md](docs/RELEASING.md)。不要从本地直接上传未经 CI
+校验的发行产物。

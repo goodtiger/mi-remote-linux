@@ -107,6 +107,7 @@ OK+方向手势与 momentary layer 兼容能力，但默认 RC003 配置使用�
 mi-remote-linux/
 ├── AGENTS.md              # 本文件
 ├── README.md              # 项目说明
+├── CHANGELOG.md           # 版本变更记录
 ├── pyproject.toml         # Python 项目配置
 ├── src/
 │   └── mi_remote_linux/
@@ -138,12 +139,16 @@ mi-remote-linux/
 │   ├── test_ble_client.py
 │   ├── test_injector.py
 │   ├── test_main.py
+│   ├── test_install_release.py
 │   ├── test_model_manager.py
+│   ├── test_release.py
 │   └── test_voice.py
 ├── systemd/
 │   └── mi-remote-voice.service.example
 └── scripts/
+    ├── check_release.py       # tag 与包版本保护
     ├── download_paraformer.py # Paraformer 模型下载脚本
+    ├── install_release.py     # 校验式用户安装/升级
     └── setup.sh               # 环境安装脚本
 ```
 

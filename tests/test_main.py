@@ -7,11 +7,22 @@ from unittest.mock import AsyncMock
 import numpy as np
 import pytest
 
+from mi_remote_linux import __version__
 from mi_remote_linux import main as main_module
 from mi_remote_linux.doctor import DoctorCheck, DoctorReport
 from mi_remote_linux.main import VoiceApp
 from mi_remote_linux.self_test import SelfTestCheck, SelfTestReport
 from mi_remote_linux.text_corrector import TextCorrector
+
+
+def test_cli_reports_package_version(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["mi-remote", "--version"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_module.main()
+
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out.strip() == f"mi-remote {__version__}"
 
 
 @pytest.mark.asyncio
