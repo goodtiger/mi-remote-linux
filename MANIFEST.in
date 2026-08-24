@@ -1,0 +1,5 @@
+include AGENTS.md
+include CONTRIBUTING.md
+include THIRD_PARTY_NOTICES.md
+recursive-include scripts *.sh
+recursive-include systemd *.example

@@ -1,0 +1,39 @@
+name: Bug report
+description: 报告可复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 请描述预期行为和实际行为。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: 请提供去除蓝牙 MAC 和个人信息后的命令与步骤。
+    validations:
+      required: true
+  - type: input
+    id: remote
+    attributes:
+      label: 遥控器型号
+      placeholder: RC003-MS
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Linux 环境
+      placeholder: 发行版、BlueZ、Python、Wayland/X11、桌面环境
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: 请先移除 MAC、用户名、路径及其他敏感信息。
+      render: shell

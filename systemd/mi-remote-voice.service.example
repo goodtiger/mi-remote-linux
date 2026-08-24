@@ -1,0 +1,14 @@
+[Unit]
+Description=MiRemote RC003 voice input
+After=graphical-session.target bluetooth.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# Replace both the project path and Bluetooth address before installing.
+ExecStart=/home/YOUR_USER/work/mi-remote-linux/.venv/bin/mi-remote voice --address AA:BB:CC:DD:EE:FF --model base --language zh --inject
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

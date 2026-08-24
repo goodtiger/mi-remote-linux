@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=77.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mi-remote-linux"
+version = "0.1.0"
+description = "Xiaomi Bluetooth Remote 2 Pro (RC003) voice input and key mapping for Linux"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+keywords = ["xiaomi", "bluetooth", "remote-control", "voice-input", "linux"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    "bleak>=0.21.0",
+    "dbus-fast>=1.83.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+voice = [
+    "faster-whisper>=0.10.0",
+    "socksio>=1.0.0",
+]
+keys = [
+    "evdev>=1.6.0",
+]
+dev = [
+    "build>=1.2.0",
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/goodtiger/mi-remote-linux"
+Repository = "https://github.com/goodtiger/mi-remote-linux.git"
+Issues = "https://github.com/goodtiger/mi-remote-linux/issues"
+
+[project.scripts]
+mi-remote = "mi_remote_linux.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
