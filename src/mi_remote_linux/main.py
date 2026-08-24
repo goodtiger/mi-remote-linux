@@ -13,6 +13,7 @@ from .ble_client import ATVVClient
 from .hid_guard import HID_GRAB_MODES, RemoteHIDGuard
 from .injector import PASTE_SHORTCUTS, LinuxTextInjector, TextInjectionError
 from .runtime import AlreadyRunningError, VoiceInstanceLock
+from .text_corrector import TermsFileError, TextCorrector
 from .voice import VoicePipeline
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class VoiceApp:
         save_audio_dir: str | None = None,
         output_file: str | None = None,
         injector: LinuxTextInjector | None = None,
+        text_corrector: TextCorrector | None = None,
         hid_guard: RemoteHIDGuard | None = None,
         reconnect_initial_delay: float = 1.0,
         reconnect_max_delay: float = 15.0,
@@ -43,6 +45,7 @@ class VoiceApp:
         self.address = address
         self.output_file = output_file
         self.injector = injector
+        self.text_corrector = text_corrector
         self.hid_guard = hid_guard
         self.reconnect_initial_delay = reconnect_initial_delay
         self.reconnect_max_delay = reconnect_max_delay
@@ -100,6 +103,10 @@ class VoiceApp:
         async with self._transcription_lock:
             text = await asyncio.to_thread(self.pipeline.transcribe, samples)
             if text:
+                corrected = self.text_corrector.apply(text) if self.text_corrector else text
+                if corrected != text:
+                    logger.info("术语纠正结果: %s", corrected)
+                text = corrected
                 print(text, flush=True)
                 if self.output_file:
                     try:
@@ -242,6 +249,12 @@ class VoiceApp:
 
 def cmd_voice(args: argparse.Namespace) -> None:
     """voice 子命令。"""
+    try:
+        text_corrector = TextCorrector.from_file(args.terms) if args.terms else None
+    except TermsFileError as exc:
+        print(f"术语表无效: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
     injector = (
         LinuxTextInjector(
             session=args.session,
@@ -273,6 +286,7 @@ def cmd_voice(args: argparse.Namespace) -> None:
         save_audio_dir=args.save_audio_dir,
         output_file=args.output,
         injector=injector,
+        text_corrector=text_corrector,
         hid_guard=RemoteHIDGuard(mode=args.grab_hid),
     )
     try:
@@ -354,6 +368,10 @@ def main() -> None:
     voice_parser.add_argument(
         "--save-audio-dir",
         help="把每次解码后的 WAV 保存到指定目录（仅用于调试）",
+    )
+    voice_parser.add_argument(
+        "--terms",
+        help="JSON 术语纠正表；纠正后的文本用于 stdout、文件和焦点输入",
     )
     voice_parser.add_argument(
         "--grab-hid",

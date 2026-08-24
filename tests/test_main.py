@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from mi_remote_linux.main import VoiceApp
+from mi_remote_linux.text_corrector import TextCorrector
 
 
 @pytest.mark.asyncio
@@ -30,6 +31,22 @@ async def test_stdout_mode_does_not_require_an_injector(capsys):
     await app._transcribe_and_emit(np.array([1, 2], dtype=np.int16))
 
     assert capsys.readouterr().out == "只输出\n"
+
+
+@pytest.mark.asyncio
+async def test_corrected_text_is_emitted_and_injected(capsys):
+    injector = AsyncMock()
+    app = VoiceApp(
+        injector=injector,
+        text_corrector=TextCorrector({"电脑号本": "GitHub"}),
+    )
+    app.pipeline.transcribe = lambda _samples: "提交到电脑号本"
+    app._transcription_lock = __import__("asyncio").Lock()
+
+    await app._transcribe_and_emit(np.array([1, 2], dtype=np.int16))
+
+    assert capsys.readouterr().out == "提交到GitHub\n"
+    injector.inject.assert_awaited_once_with("提交到GitHub")
 
 
 @pytest.mark.asyncio

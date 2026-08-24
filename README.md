@@ -90,6 +90,9 @@ quit
 # 调试时保存每段解码后的 WAV（默认不会保存录音）
 .venv/bin/mi-remote voice --save-audio-dir debug-audio
 
+# 使用自定义术语纠正表
+.venv/bin/mi-remote voice --terms examples/terms.example.json --inject
+
 # 转写后自动粘贴到当前焦点（推荐）
 .venv/bin/mi-remote voice --address AA:BB:CC:DD:EE:FF --inject
 
@@ -130,6 +133,31 @@ Sherpa-ONNX Paraformer 会在启动时加载一次并常驻复用。本机实测
 
 `--save-audio-dir` 只用于诊断识别问题，启用后会保留未经前导裁剪的 WAV，并避免覆盖目录
 中已有的录音。录音可能包含敏感语音，分析后请自行删除；默认不会把音频写入磁盘。
+
+### 自定义术语纠正
+
+Paraformer 对中文表现较好，但 `Codex`、`GitHub` 等专有名词可能被识别成近音文本。可复制
+仓库的 `examples/terms.example.json` 并按实际识别日志维护替换规则：
+
+```json
+{
+  "replacements": {
+    "colalax": "Codex",
+    "code x": "Codex",
+    "电脑号本": "GitHub",
+    "game up": "GitHub",
+    "python": "Python"
+  }
+}
+```
+
+```bash
+.venv/bin/mi-remote voice --terms ~/.config/mi-remote-linux/terms.json --inject
+```
+
+替换按最长词优先，英文大小写不敏感，并且每段文本只替换一次，不会发生连锁误改。日志
+保留引擎的原始识别结果；stdout、输出文件和焦点输入使用纠正后的文本。项目默认不启用
+任何个人术语规则。
 
 同一段遥控器真机录音对照结果（2026-08-24）：
 
@@ -201,8 +229,8 @@ systemctl --user stop mi-remote-voice.service
 ```
 
 当前自动化覆盖 ATVV 字段解析、握手音频状态、裸帧/带头帧、错位重同步、ADPCM
-跨批状态、PCM 后处理、常驻 Paraformer、静音保护、断线重连、单实例、RC003 设备级
-F9 隔离和 Wayland/X11 注入失败回退。实机验收步骤见 [AGENTS.md](AGENTS.md)。
+跨批状态、PCM 后处理、常驻 Paraformer、静音保护、术语纠正、断线重连、单实例、RC003
+设备级 F9 隔离和 Wayland/X11 注入失败回退。实机验收步骤见 [AGENTS.md](AGENTS.md)。
 
 ## 开发路线
 

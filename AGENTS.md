@@ -106,6 +106,7 @@ mi-remote-linux/
 │       ├── injector.py    # Wayland 当前焦点文本注入
 │       ├── hid_guard.py   # RC003 F9 过滤与其他键 uinput 转发
 │       ├── runtime.py     # 语音进程单实例锁
+│       ├── text_corrector.py # 可配置的识别术语纠正
 │       ├── hid.py         # evdev HID 读取（Phase B，计划）
 │       ├── mapping.py     # 按键映射引擎（Phase B，计划）
 │       └── actions.py     # 动作执行器（Phase B，计划）

@@ -1,6 +1,7 @@
 include AGENTS.md
 include CONTRIBUTING.md
 include THIRD_PARTY_NOTICES.md
+recursive-include examples *.json
 recursive-include scripts *.py *.sh
 recursive-include systemd *.example
 recursive-include udev *.rules
