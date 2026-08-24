@@ -17,6 +17,13 @@ from .hid_guard import HID_GRAB_MODES, RemoteHIDGuard
 from .injector import PASTE_SHORTCUTS, LinuxTextInjector, TextInjectionError
 from .remote_keys import KeyRunApp, KeyWatchApp, RemoteKeyService
 from .runtime import AlreadyRunningError, VoiceInstanceLock
+from .self_test import (
+    DesktopSelfTest,
+    KeySelfTest,
+    VoiceSelfTest,
+    combine_self_test_reports,
+    render_self_test_report,
+)
 from .text_corrector import TermsFileError, TextCorrector
 from .voice import VoicePipeline
 
@@ -374,6 +381,47 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         raise SystemExit(report.exit_code)
 
 
+async def _run_self_test(args: argparse.Namespace):
+    reports = []
+    if args.suite in {"all", "keys"}:
+        reports.append(await KeySelfTest().run(timeout=args.timeout))
+        if reports[-1].exit_code:
+            return combine_self_test_reports(*reports) if args.suite == "all" else reports[-1]
+    if args.suite in {"all", "voice"}:
+        pipeline = VoicePipeline(
+            model_size=args.model,
+            language=args.language,
+            engine=args.engine,
+            gain_db=args.gain,
+            paraformer_model_dir=args.model_dir,
+        )
+        reports.append(
+            await VoiceSelfTest(pipeline).run(
+                address=args.address,
+                phrase=args.phrase,
+                timeout=args.timeout,
+            )
+        )
+    if args.suite in {"all", "desktop"}:
+        reports.append(await DesktopSelfTest(session=args.session).run(inject=args.inject))
+    return combine_self_test_reports(*reports) if args.suite == "all" else reports[0]
+
+
+def cmd_self_test(args: argparse.Namespace) -> None:
+    try:
+        if args.suite == "desktop":
+            report = asyncio.run(_run_self_test(args))
+        else:
+            with VoiceInstanceLock():
+                report = asyncio.run(_run_self_test(args))
+    except AlreadyRunningError as exc:
+        print(f"无法开始真机验收：{exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    print(report.to_json() if args.json else render_self_test_report(report))
+    if report.exit_code:
+        raise SystemExit(report.exit_code)
+
+
 def main() -> None:
     """主入口。"""
     parser = argparse.ArgumentParser(
@@ -535,6 +583,43 @@ def main() -> None:
         help="输出适合脚本处理的 JSON",
     )
     doctor_parser.set_defaults(func=cmd_doctor)
+
+    test_parser = subparsers.add_parser(
+        "test",
+        help="交互验证按键、语音和安全桌面功能",
+    )
+    test_parser.add_argument(
+        "suite",
+        nargs="?",
+        choices=["all", "keys", "voice", "desktop"],
+        default="all",
+        help="测试套件（默认: all）",
+    )
+    test_parser.add_argument("-a", "--address", help="遥控器 BLE MAC 地址（默认自动发现）")
+    test_parser.add_argument("--timeout", type=float, default=30.0, help="每一步超时秒数")
+    test_parser.add_argument(
+        "--phrase",
+        default="这是小米遥控器语音输入测试",
+        help="语音测试时显示的目标语句",
+    )
+    test_parser.add_argument(
+        "--engine",
+        choices=["auto", "faster-whisper", "sherpa-paraformer", "voxtype-paraformer"],
+        default="auto",
+        help="语音识别引擎（默认: auto）",
+    )
+    test_parser.add_argument("--model", default="base", help="faster-whisper 模型")
+    test_parser.add_argument("--model-dir", help="Paraformer 模型目录")
+    test_parser.add_argument("--language", default="zh", help="语音语言（默认: zh）")
+    test_parser.add_argument("--gain", type=float, default=6.0, help="音频增益 dB")
+    test_parser.add_argument("--session", choices=["auto", "wayland", "x11"], default="auto")
+    test_parser.add_argument(
+        "--inject",
+        action="store_true",
+        help="桌面测试中经确认后向焦点输入测试文字",
+    )
+    test_parser.add_argument("--json", action="store_true", help="最终报告输出为 JSON")
+    test_parser.set_defaults(func=cmd_self_test)
 
     args = parser.parse_args()
     if getattr(args, "submit", False) and not getattr(args, "inject", False):

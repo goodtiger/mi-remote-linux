@@ -11,6 +11,7 @@
 - 进程内常驻 Sherpa-ONNX Paraformer，也可回退 Voxtype CLI 或 faster-whisper
 - 自动发现已配对的 RC003，断线后持续重连
 - `mi-remote doctor` 只读检查蓝牙、输入权限、桌面后端、媒体工具和语音模型
+- `mi-remote test` 交互验收 13 键、单次语音、桌面通知和焦点输入
 - 13 键全部可配置，支持短按、长按、双击、OK+方向手势、层和宏
 - 对应 macOS v7 默认心智模型、App 控制模式和前台应用 profile
 - 窗口选择器、任务视图、App 轮盘、系统菜单、教程与鼠标模式
@@ -134,6 +135,29 @@ stdout 只输出识别文本，状态和日志写到 stderr，便于交给其他
 `doctor` 只查询 BlueZ、evdev 路径、图形会话、命令和模型文件，不连接 BLE、不独占输入
 设备、不加载模型，也不会安装软件或修改系统配置。有必需项失败时退出码为 `1`；只有可选
 能力警告时退出码仍为 `0`。每个警告或失败都会给出针对性的处理建议。
+
+### 真机交互验收
+
+`doctor` 通过后，可逐项或一次性验证真实硬件：
+
+```bash
+# 依次提示按下全部 13 键；只读取事件，不执行映射动作
+.venv/bin/mi-remote test keys
+
+# 采集并转写一句话，报告识别文本、相似度、延迟、时长、RMS 和峰值
+.venv/bin/mi-remote test voice
+
+# 安全检查通知、窗口查询和音频状态；默认不向焦点写入
+.venv/bin/mi-remote test desktop
+
+# 明确允许焦点输入测试，或运行完整流程并输出 JSON
+.venv/bin/mi-remote test desktop --inject
+.venv/bin/mi-remote test all --json
+```
+
+按键测试会独占 RC003 输入节点，因此电源键等只作为原始事件记录，不会执行关屏。桌面测试
+永远跳过关屏、锁屏和退出应用；只有显式传入 `--inject` 时，才会在再次提示确认后粘贴固定
+测试文字。测试前需停止正在运行的 `voice`/`keys run` 实例，单实例锁会阻止设备争抢。
 
 ### 13 键、层、手势和宏
 
@@ -355,7 +379,8 @@ systemctl --user stop mi-remote-voice.service
 2. Phase B：13 键映射、层、手势、宏与 Wayland/X11 动作后端（已完成）
 3. macOS v7 默认语义、per-app profile、窗口/App 浮层和鼠标模式（已完成）
 4. 通用 Linux `mi-remote doctor` 安装与运行诊断（已完成）
-5. 后续：原生桌面 GUI 配置编辑器和更多合成器兼容矩阵
+5. `mi-remote test` 交互式真机验收和 JSON 报告（已完成）
+6. 后续：原生桌面 GUI 配置编辑器和更多合成器兼容矩阵
 
 ## 参考
 

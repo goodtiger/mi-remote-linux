@@ -10,6 +10,7 @@ import pytest
 from mi_remote_linux import main as main_module
 from mi_remote_linux.doctor import DoctorCheck, DoctorReport
 from mi_remote_linux.main import VoiceApp
+from mi_remote_linux.self_test import SelfTestCheck, SelfTestReport
 from mi_remote_linux.text_corrector import TextCorrector
 
 
@@ -143,3 +144,26 @@ def test_doctor_cli_returns_nonzero_when_required_check_fails(monkeypatch, capsy
 
     assert exc_info.value.code == 1
     assert "1 失败" in capsys.readouterr().out
+
+
+def test_desktop_self_test_cli_outputs_json_without_hardware_lock(monkeypatch, capsys):
+    report = SelfTestReport(
+        "desktop", (SelfTestCheck("notification", "桌面通知", "pass", "发送成功"),)
+    )
+
+    class FakeDesktopTest:
+        def __init__(self, *, session):
+            assert session == "wayland"
+
+        async def run(self, *, inject):
+            assert inject is False
+            return report
+
+    monkeypatch.setattr(main_module, "DesktopSelfTest", FakeDesktopTest)
+    monkeypatch.setattr(
+        sys, "argv", ["mi-remote", "test", "desktop", "--session", "wayland", "--json"]
+    )
+
+    main_module.main()
+
+    assert json.loads(capsys.readouterr().out)["suite"] == "desktop"
