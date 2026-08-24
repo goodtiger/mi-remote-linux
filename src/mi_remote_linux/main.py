@@ -24,6 +24,7 @@ from .self_test import (
     combine_self_test_reports,
     render_self_test_report,
 )
+from .service_manager import UDEV_RULES, ServiceError, ServiceManager, render_service_status
 from .text_corrector import TermsFileError, TextCorrector
 from .voice import VoicePipeline
 
@@ -422,6 +423,58 @@ def cmd_self_test(args: argparse.Namespace) -> None:
         raise SystemExit(report.exit_code)
 
 
+def cmd_service(args: argparse.Namespace) -> None:
+    try:
+        manager = ServiceManager(executable=sys.argv[0])
+        if args.service_command == "status":
+            status = manager.status()
+            print(status.to_json() if args.json else render_service_status(status))
+            return
+        if args.service_command == "show":
+            print(
+                manager.render(
+                    voice_only=args.voice_only,
+                    address=args.address,
+                    inject=not args.no_inject,
+                ),
+                end="",
+            )
+            return
+        if args.service_command == "udev":
+            print(UDEV_RULES, end="")
+            return
+        if args.service_command == "install":
+            result = manager.install(
+                apply=args.apply,
+                force=args.force,
+                start=not args.no_start,
+                voice_only=args.voice_only,
+                address=args.address,
+                inject=not args.no_inject,
+            )
+            if not result.applied:
+                print(f"预览：将写入 {result.path}\n")
+                print(result.unit, end="")
+                print("\n未修改系统。确认后重新运行并加 --apply。")
+            else:
+                verb = "已安装" if result.changed else "内容未变化"
+                print(f"{verb}：{result.path}")
+                print("udev 权限规则不会自动安装；需要时按 README 的命令显式安装。")
+            return
+        if args.service_command == "uninstall":
+            result = manager.uninstall(apply=args.apply, force=args.force)
+            if not result.applied:
+                print(f"预览：将停用并删除 {result.path}")
+                print("未修改系统。确认后重新运行并加 --apply。")
+            elif result.changed:
+                print(f"已停用并删除：{result.path}")
+            else:
+                print(f"服务未安装：{result.path}")
+    except ServiceError as exc:
+        print(f"服务管理失败：{exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
 def main() -> None:
     """主入口。"""
     parser = argparse.ArgumentParser(
@@ -620,6 +673,45 @@ def main() -> None:
     )
     test_parser.add_argument("--json", action="store_true", help="最终报告输出为 JSON")
     test_parser.set_defaults(func=cmd_self_test)
+
+    service_parser = subparsers.add_parser(
+        "service", help="预览、安装、查询或卸载用户级 systemd 服务"
+    )
+    service_subparsers = service_parser.add_subparsers(dest="service_command", required=True)
+    service_status = service_subparsers.add_parser("status", help="只读查询服务状态")
+    service_status.add_argument("--json", action="store_true", help="输出 JSON")
+    service_status.set_defaults(func=cmd_service)
+
+    def add_service_render_options(target):
+        target.add_argument("-a", "--address", help="固定遥控器 BLE MAC（默认自动发现）")
+        target.add_argument("--voice-only", action="store_true", help="只启用语音，不运行按键映射")
+        target.add_argument("--no-inject", action="store_true", help="不把识别文本输入当前焦点")
+
+    service_show = service_subparsers.add_parser("show", help="输出将生成的服务文件")
+    add_service_render_options(service_show)
+    service_show.set_defaults(func=cmd_service)
+    service_udev = service_subparsers.add_parser(
+        "udev", help="只输出 RC003/uinput udev 规则，不安装"
+    )
+    service_udev.set_defaults(func=cmd_service)
+    service_install = service_subparsers.add_parser(
+        "install", help="安装服务；默认只预览，--apply 才执行"
+    )
+    add_service_render_options(service_install)
+    service_install.add_argument(
+        "--apply", action="store_true", help="确认写入并调用 systemctl --user"
+    )
+    service_install.add_argument("--force", action="store_true", help="允许覆盖已有服务文件")
+    service_install.add_argument("--no-start", action="store_true", help="只安装文件，不启用或启动")
+    service_install.set_defaults(func=cmd_service)
+    service_uninstall = service_subparsers.add_parser(
+        "uninstall", help="卸载服务；默认只预览，--apply 才执行"
+    )
+    service_uninstall.add_argument("--apply", action="store_true", help="确认停用并删除服务")
+    service_uninstall.add_argument(
+        "--force", action="store_true", help="允许删除非本工具生成的同名服务"
+    )
+    service_uninstall.set_defaults(func=cmd_service)
 
     args = parser.parse_args()
     if getattr(args, "submit", False) and not getattr(args, "inject", False):

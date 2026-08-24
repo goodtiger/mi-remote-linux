@@ -12,6 +12,7 @@
 - 自动发现已配对的 RC003，断线后持续重连
 - `mi-remote doctor` 只读检查蓝牙、输入权限、桌面后端、媒体工具和语音模型
 - `mi-remote test` 交互验收 13 键、单次语音、桌面通知和焦点输入
+- `mi-remote service` 安全预览、安装、查询和卸载用户级 systemd 服务
 - 13 键全部可配置，支持短按、长按、双击、OK+方向手势、层和宏
 - 对应 macOS v7 默认心智模型、App 控制模式和前台应用 profile
 - 窗口选择器、任务视图、App 轮盘、系统菜单、教程与鼠标模式
@@ -338,6 +339,41 @@ uinput 授权方案。项目不会自动安装 udev 规则，
 
 ## 后台自启动
 
+推荐使用服务管理命令。`install` 和 `uninstall` 默认仅预览，不会写文件或调用 systemctl：
+
+```bash
+# 查看生成内容和当前状态
+.venv/bin/mi-remote service show
+.venv/bin/mi-remote service status
+
+# 明确确认后写入用户服务并立即启用
+.venv/bin/mi-remote service install --apply
+
+# 仅安装文件但不启动
+.venv/bin/mi-remote service install --apply --no-start
+
+# 卸载同样默认预览，必须明确确认
+.venv/bin/mi-remote service uninstall
+.venv/bin/mi-remote service uninstall --apply
+```
+
+已有同名服务时不会覆盖；只有显式 `--force` 才允许覆盖或删除非本工具生成的文件。服务
+使用当前 `mi-remote` 可执行文件的绝对路径，不需要手改用户名或源码路径。
+
+工具永远不会调用 `sudo`。需要 udev 权限时，先把随包提供的规则输出到临时文件，检查后
+由用户明确安装：
+
+```bash
+.venv/bin/mi-remote service udev > /tmp/99-mi-remote-linux.rules
+less /tmp/99-mi-remote-linux.rules
+sudo install -m 0644 /tmp/99-mi-remote-linux.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=input
+sudo udevadm trigger --subsystem-match=misc --sysname-match=uinput
+```
+
+仓库中的模板仍保留给需要手工维护 unit 的高级用户：
+
 仓库提供纯语音的 `systemd/mi-remote-voice.service.example` 和语音+13 键的
 `systemd/mi-remote.service.example`。复制所需版本到用户服务目录后，把其中的项目路径
 改成实际值；MAC 地址可以省略并自动发现。以下仍以纯语音版本为例：
@@ -380,7 +416,8 @@ systemctl --user stop mi-remote-voice.service
 3. macOS v7 默认语义、per-app profile、窗口/App 浮层和鼠标模式（已完成）
 4. 通用 Linux `mi-remote doctor` 安装与运行诊断（已完成）
 5. `mi-remote test` 交互式真机验收和 JSON 报告（已完成）
-6. 后续：原生桌面 GUI 配置编辑器和更多合成器兼容矩阵
+6. 安全的用户级 systemd 服务预览、安装、状态和卸载（已完成）
+7. 后续：模型管理、正式发行包、更多合成器兼容矩阵和原生 GUI
 
 ## 参考
 
