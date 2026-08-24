@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 class AlreadyRunningError(RuntimeError):
-    """另一个语音实例已持有运行锁。"""
+    """另一个遥控器实例已持有运行锁。"""
 
 
 class VoiceInstanceLock:
@@ -29,7 +29,7 @@ class VoiceInstanceLock:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             os.close(fd)
-            raise AlreadyRunningError("已有 mi-remote voice 实例正在运行") from exc
+            raise AlreadyRunningError("已有 mi-remote voice/keys 实例正在运行") from exc
         os.ftruncate(fd, 0)
         os.write(fd, f"{os.getpid()}\n".encode())
         self._fd = fd

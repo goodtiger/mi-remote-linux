@@ -25,7 +25,8 @@
 6. `main.py` — CLI 入口，按住说话松手发送
 
 **当前状态（2026-08-24）**：Phase C 核心链路、常驻 Paraformer、焦点输入、设备级
-F9 隔离、单实例和 BLE 自动重连已实现并通过自动化；Phase B 完整按键映射尚未实现。
+语音 HID 键隔离、单实例和 BLE 自动重连已实现并通过自动化；Phase B 的 13 键映射、
+tap/hold/double、OK+方向手势、层、宏及 Wayland/X11 动作后端也已实现。
 
 真机结果：BlueZ 已连接设备发现、ATVV v1 CAPS、120 字节裸帧、三次连续录音、
 ADPCM→PCM、tiny Whisper 下载/转写、MIC_CLOSE 和 Ctrl+C 后恢复 HID 连接均通过。
@@ -66,8 +67,8 @@ ADPCM→PCM、tiny Whisper 下载/转写、MIC_CLOSE 和 Ctrl+C 后恢复 HID �
 **按键处理**：
 - Linux 蓝牙配对后，HID 按键自动映射为 `/dev/input/event*`
 - 可用 `evdev` 库读取，无需自己实现 BLE HID 解析
-- 语音键同时触发 HID 事件（RC003 当前固件为 F9）和 ATVV 协议（0x08），用 ATVV 侧
-  控制语音生命周期；`hid_guard.py` 按 VID/PID 隔离 F9，不修改物理键盘或桌面配置
+- 语音键同时触发 HID 事件（RC003-MS 0x00a4 真机为 KEY_F5，兼容 KEY_F9）和 ATVV
+  协议（0x08），用 ATVV 侧控制语音生命周期；按 VID/PID 隔离，不修改物理键盘或桌面配置
 
 ### Phase B：完整按键映射
 
@@ -76,8 +77,16 @@ ADPCM→PCM、tiny Whisper 下载/转写、MIC_CLOSE 和 Ctrl+C 后恢复 HID �
 **核心模块**：
 6. `hid_engine.py` — evdev 读取遥控器按键事件
 7. `mapping_engine.py` — 从上游 MappingEngine.swift 移植，按键绑定/层/手势/宏
-8. `action_runner.py` — ydotool / uinput 虚拟键盘输出
+8. `action_runner.py` — wtype / ydotool / xdotool 虚拟键盘输出
 9. `config.py` — JSON 配置文件加载
+
+**当前状态（2026-08-24）**：已完成。真机键码为 power=116、voice=63、up=103、
+down=108、left=105、right=106、ok=28、back=158、home=102、menu=127、tv=41、
+volUp=115、volDown=114。`mi-remote keys watch` 用于探针，`keys run` 用于纯按键模式，
+`voice --config ...` 用于语音和按键合并运行。
+
+本机 evdev 真机确认是单键 rollover：一个键按住期间第二键不会上报。因此引擎保留
+OK+方向手势与 momentary layer 兼容能力，但默认 RC003 配置使用长按/TV toggle 层。
 
 ## 技术栈
 
@@ -104,12 +113,14 @@ mi-remote-linux/
 │       ├── adpcm.py       # IMA ADPCM 解码器
 │       ├── voice.py       # 语音转写管道
 │       ├── injector.py    # Wayland 当前焦点文本注入
-│       ├── hid_guard.py   # RC003 F9 过滤与其他键 uinput 转发
+│       ├── hid_guard.py   # RC003 语音 HID 键过滤与其他键 uinput 转发
 │       ├── runtime.py     # 语音进程单实例锁
 │       ├── text_corrector.py # 可配置的识别术语纠正
-│       ├── hid.py         # evdev HID 读取（Phase B，计划）
-│       ├── mapping.py     # 按键映射引擎（Phase B，计划）
-│       └── actions.py     # 动作执行器（Phase B，计划）
+│       ├── hid_engine.py  # evdev RC003 热插拔与 13 键读取
+│       ├── mapping_engine.py # tap/hold/double、层与手势状态机
+│       ├── action_runner.py  # Wayland/X11 动作执行
+│       ├── remote_keys.py # 按键服务生命周期
+│       └── config.py      # 严格 JSON 配置模型
 ├── tests/
 │   ├── test_adpcm.py
 │   ├── test_atvv.py

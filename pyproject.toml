@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mi-remote-linux"
-version = "0.1.0"
+version = "0.2.0"
 description = "Xiaomi Bluetooth Remote 2 Pro (RC003) voice input and key mapping for Linux"
 readme = "README.md"
 license = "MIT"

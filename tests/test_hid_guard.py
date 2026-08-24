@@ -9,6 +9,7 @@ from mi_remote_linux.hid_guard import RemoteHIDGuard
 
 class FakeEcodes:
     EV_KEY = 1
+    KEY_F5 = 63
     KEY_F9 = 67
 
 
@@ -77,6 +78,20 @@ async def test_safe_mode_grabs_f9_only_node(monkeypatch):
     assert device.grabbed is True
     await guard.stop()
     assert device.closed is True
+
+
+@pytest.mark.asyncio
+async def test_confirmed_f5_voice_key_is_filtered(monkeypatch):
+    device = FakeDevice("/dev/input/event7", [FakeEcodes.KEY_F5])
+    guard = RemoteHIDGuard(evdev_module=FakeEvdev([device]))
+    loop = __import__("asyncio").get_running_loop()
+    monkeypatch.setattr(loop, "add_reader", lambda *_args: None)
+    monkeypatch.setattr(loop, "remove_reader", lambda *_args: None)
+
+    await guard.start()
+
+    assert guard.grabbed_paths == ("/dev/input/event7",)
+    await guard.stop()
 
 
 @pytest.mark.asyncio

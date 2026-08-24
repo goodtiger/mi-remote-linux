@@ -8,10 +8,13 @@ import sys
 
 import numpy as np
 
+from .action_runner import LinuxActionRunner
 from .atvv import SyncFrame
 from .ble_client import ATVVClient
+from .config import ConfigError, load_config
 from .hid_guard import HID_GRAB_MODES, RemoteHIDGuard
 from .injector import PASTE_SHORTCUTS, LinuxTextInjector, TextInjectionError
+from .remote_keys import KeyRunApp, KeyWatchApp, RemoteKeyService
 from .runtime import AlreadyRunningError, VoiceInstanceLock
 from .text_corrector import TermsFileError, TextCorrector
 from .voice import VoicePipeline
@@ -275,6 +278,21 @@ def cmd_voice(args: argparse.Namespace) -> None:
             print("X11: 安装 xclip 和 xdotool", file=sys.stderr)
             return
 
+    key_service = None
+    config_path = getattr(args, "config", None)
+    if config_path:
+        try:
+            mapping_config = load_config(config_path)
+        except ConfigError as exc:
+            print(f"按键配置无效: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+        action_runner = LinuxActionRunner(session=args.session)
+        missing = action_runner.missing_dependencies()
+        if missing:
+            print(f"按键动作不可用，缺少: {', '.join(missing)}", file=sys.stderr)
+            return
+        key_service = RemoteKeyService(mapping_config, action_runner)
+
     app = VoiceApp(
         address=args.address,
         model_size=args.model,
@@ -287,11 +305,39 @@ def cmd_voice(args: argparse.Namespace) -> None:
         output_file=args.output,
         injector=injector,
         text_corrector=text_corrector,
-        hid_guard=RemoteHIDGuard(mode=args.grab_hid),
+        hid_guard=key_service or RemoteHIDGuard(mode=args.grab_hid),
     )
     try:
         with VoiceInstanceLock():
             asyncio.run(app.run())
+    except AlreadyRunningError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
+    except KeyboardInterrupt:
+        pass
+
+
+def cmd_keys_watch(args: argparse.Namespace) -> None:
+    try:
+        asyncio.run(KeyWatchApp(grab=not args.no_grab).run())
+    except KeyboardInterrupt:
+        pass
+
+
+def cmd_keys_run(args: argparse.Namespace) -> None:
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"按键配置无效: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    runner = LinuxActionRunner(session=args.session)
+    missing = runner.missing_dependencies()
+    if missing:
+        print(f"按键动作不可用，缺少: {', '.join(missing)}", file=sys.stderr)
+        raise SystemExit(2)
+    try:
+        with VoiceInstanceLock():
+            asyncio.run(KeyRunApp(RemoteKeyService(config, runner)).run())
     except AlreadyRunningError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc
@@ -377,7 +423,11 @@ def main() -> None:
         "--grab-hid",
         choices=HID_GRAB_MODES,
         default="safe",
-        help="隔离遥控器 F9：safe 保留其他键，force 在无 uinput 时仍可独占",
+        help="隔离遥控器语音 HID 键：safe 保留其他键，force 在无 uinput 时仍可独占",
+    )
+    voice_parser.add_argument(
+        "--config",
+        help="启用完整按键映射并读取 Phase B JSON 配置；替代 --grab-hid 过滤器",
     )
     voice_parser.add_argument(
         "--inject",
@@ -402,6 +452,30 @@ def main() -> None:
         help="自动粘贴后再按 Enter（必须与 --inject 同用）",
     )
     voice_parser.set_defaults(func=cmd_voice)
+
+    keys_parser = subparsers.add_parser("keys", help="13 键探针和映射模式")
+    keys_subparsers = keys_parser.add_subparsers(dest="keys_command")
+    watch_parser = keys_subparsers.add_parser("watch", help="显示 RC003 原始逻辑按键")
+    watch_parser.add_argument(
+        "--no-grab",
+        action="store_true",
+        help="仅监听，不独占遥控器输入节点（按键仍会传给桌面）",
+    )
+    watch_parser.set_defaults(func=cmd_keys_watch)
+    run_parser = keys_subparsers.add_parser("run", help="仅运行按键映射，不连接语音通道")
+    run_parser.add_argument(
+        "-c",
+        "--config",
+        required=True,
+        help="映射 JSON；可从 examples/remote.example.json 复制",
+    )
+    run_parser.add_argument(
+        "--session",
+        choices=["auto", "wayland", "x11"],
+        default="auto",
+        help="图形会话类型（默认: auto）",
+    )
+    run_parser.set_defaults(func=cmd_keys_run)
 
     args = parser.parse_args()
     if getattr(args, "submit", False) and not getattr(args, "inject", False):

@@ -1,0 +1,15 @@
+[Unit]
+Description=MiRemote RC003 voice input and 13-key mapping
+After=graphical-session.target bluetooth.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# Replace both project paths before installing. The Bluetooth address is auto-detected.
+ExecStart=/home/YOUR_USER/work/mi-remote-linux/.venv/bin/mi-remote voice --engine auto --config /home/YOUR_USER/work/mi-remote-linux/examples/remote.example.json --inject
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+
+[Install]
+WantedBy=graphical-session.target

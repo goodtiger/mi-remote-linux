@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 RC003_VENDOR_ID = 0x2717
 RC003_PRODUCT_ID = 0x32B8
 HID_GRAB_MODES = ("off", "safe", "force")
+RC003_VOICE_CODES = (63, 67)  # KEY_F5 confirmed; KEY_F9 kept for firmware compatibility
 
 
 class RemoteHIDGuard:
@@ -100,11 +101,11 @@ class RemoteHIDGuard:
             self._warn_once(path, "无法读取输入节点能力 %s: %s", path, exc)
             device.close()
             return
-        f9 = self._evdev.ecodes.KEY_F9
-        if f9 not in keys:
+        voice_codes = set(RC003_VOICE_CODES) & keys
+        if not voice_codes:
             device.close()
             return
-        other_keys = keys - {f9}
+        other_keys = keys - voice_codes
         relay = self._create_relay(device) if other_keys else None
         if self.mode == "safe" and other_keys and relay is None:
             device.close()
@@ -184,9 +185,11 @@ class RemoteHIDGuard:
                 if (
                     self._evdev
                     and event.type == self._evdev.ecodes.EV_KEY
-                    and event.code == self._evdev.ecodes.KEY_F9
+                    and event.code in RC003_VOICE_CODES
                 ):
-                    logger.debug("已拦截 RC003 F9: value=%d", event.value)
+                    logger.debug(
+                        "已拦截 RC003 语音 HID 键 code=%d value=%d", event.code, event.value
+                    )
                     continue
                 relay = self._relays.get(path)
                 if relay:

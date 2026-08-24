@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "settings": {
+    "hold_ms": 350,
+    "double_ms": 250,
+    "layer_idle_ms": 20000,
+    "escape_hold_ms": 1500
+  },
+  "bindings": {
+    "power": {
+      "tap": {"type": "none"},
+      "double": {"type": "system", "value": "lock_screen"}
+    },
+    "voice": {"tap": {"type": "voice"}},
+    "up": {
+      "tap": {"type": "key_stroke", "key": "up_arrow"},
+      "layers": {
+        "1": {"type": "key_stroke", "key": "page_up"},
+        "2": {"type": "key_stroke", "key": "up_arrow"}
+      }
+    },
+    "down": {
+      "tap": {"type": "key_stroke", "key": "down_arrow"},
+      "layers": {
+        "1": {"type": "key_stroke", "key": "page_down"},
+        "2": {"type": "key_stroke", "key": "down_arrow"}
+      }
+    },
+    "left": {
+      "tap": {"type": "key_stroke", "key": "left_arrow"},
+      "layers": {
+        "1": {"type": "key_stroke", "key": "home"},
+        "2": {"type": "key_stroke", "key": "tab", "mods": ["ctrl", "shift"]}
+      }
+    },
+    "right": {
+      "tap": {"type": "key_stroke", "key": "right_arrow"},
+      "layers": {
+        "1": {"type": "key_stroke", "key": "end"},
+        "2": {"type": "key_stroke", "key": "tab", "mods": ["ctrl"]}
+      }
+    },
+    "ok": {
+      "tap": {"type": "key_stroke", "key": "return"},
+      "layers": {"2": {"type": "key_stroke", "key": "return"}}
+    },
+    "back": {
+      "tap": {"type": "key_stroke", "key": "backspace"},
+      "layers": {"2": {"type": "key_stroke", "key": "escape"}}
+    },
+    "home": {
+      "tap": {"type": "key_stroke", "key": "home"},
+      "hold": {"type": "layer_toggle", "value": 1},
+      "layers": {"2": {"type": "key_stroke", "key": "c", "mods": ["ctrl"]}}
+    },
+    "menu": {
+      "tap": {"type": "key_stroke", "key": "escape"},
+      "layers": {"2": {"type": "key_stroke", "key": "tab", "mods": ["shift"]}}
+    },
+    "tv": {"tap": {"type": "layer_toggle", "value": 2}},
+    "vol_up": {"tap": {"type": "system", "value": "volume_up"}},
+    "vol_down": {"tap": {"type": "system", "value": "volume_down"}}
+  }
+}
