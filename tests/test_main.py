@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from mi_remote_linux import main as main_module
+from mi_remote_linux.doctor import DoctorCheck, DoctorReport
 from mi_remote_linux.main import VoiceApp
 from mi_remote_linux.text_corrector import TextCorrector
 
@@ -103,3 +104,42 @@ def test_config_validate_accepts_packaged_default(monkeypatch, capsys):
     main_module.main()
 
     assert "13 个全局按键" in capsys.readouterr().out
+
+
+def test_doctor_cli_outputs_machine_readable_json(monkeypatch, capsys):
+    report = DoctorReport((DoctorCheck("platform", "系统", "pass", "Linux test"),))
+
+    class FakeDoctor:
+        async def run(self, **kwargs):
+            assert kwargs == {"address": "AA:BB", "model_dir": "/models"}
+            return report
+
+    monkeypatch.setattr(main_module, "Doctor", FakeDoctor)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mi-remote", "doctor", "--address", "AA:BB", "--model-dir", "/models", "--json"],
+    )
+
+    main_module.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["ok"] is True
+    assert output["checks"][0]["key"] == "platform"
+
+
+def test_doctor_cli_returns_nonzero_when_required_check_fails(monkeypatch, capsys):
+    report = DoctorReport((DoctorCheck("remote", "蓝牙遥控器", "fail", "未找到"),))
+
+    class FakeDoctor:
+        async def run(self, **_kwargs):
+            return report
+
+    monkeypatch.setattr(main_module, "Doctor", FakeDoctor)
+    monkeypatch.setattr(sys, "argv", ["mi-remote", "doctor"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_module.main()
+
+    assert exc_info.value.code == 1
+    assert "1 失败" in capsys.readouterr().out

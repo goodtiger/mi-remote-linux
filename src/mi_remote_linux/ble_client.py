@@ -103,6 +103,26 @@ def _select_known_bluez_device(
     return max(candidates, key=lambda candidate: candidate[0])[1] if candidates else None
 
 
+async def find_known_bluez_remote(address: str | None = None) -> BLEDevice | None:
+    """Read BlueZ ObjectManager state without scanning or connecting."""
+    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    try:
+        reply = await bus.call(
+            Message(
+                destination="org.bluez",
+                path="/",
+                interface="org.freedesktop.DBus.ObjectManager",
+                member="GetManagedObjects",
+            )
+        )
+        if reply.message_type == MessageType.ERROR or not reply.body:
+            logger.debug("BlueZ 已知设备查询失败: %s", reply.error_name)
+            return None
+        return _select_known_bluez_device(reply.body[0], address)
+    finally:
+        bus.disconnect()
+
+
 class ATVVClient:
     """连接小米遥控器并运行 ATVV 语音状态机。"""
 
@@ -265,22 +285,7 @@ class ATVVClient:
 
     async def _find_known_remote(self, address: str | None) -> BLEDevice | None:
         """查询 BlueZ ObjectManager，覆盖已连接 HID 设备不再广播的情况。"""
-        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
-        try:
-            reply = await bus.call(
-                Message(
-                    destination="org.bluez",
-                    path="/",
-                    interface="org.freedesktop.DBus.ObjectManager",
-                    member="GetManagedObjects",
-                )
-            )
-            if reply.message_type == MessageType.ERROR or not reply.body:
-                logger.debug("BlueZ 已知设备查询失败: %s", reply.error_name)
-                return None
-            return _select_known_bluez_device(reply.body[0], address)
-        finally:
-            bus.disconnect()
+        return await find_known_bluez_remote(address)
 
     async def _restore_bluez_connection(self, device_path: str) -> None:
         """Bleak 退出会断开共享 BLE 链路；重新连接以恢复 HID 输入。"""

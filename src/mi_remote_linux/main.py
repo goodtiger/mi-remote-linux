@@ -12,6 +12,7 @@ from .action_runner import LinuxActionRunner
 from .atvv import SyncFrame
 from .ble_client import ATVVClient
 from .config import ConfigError, default_config_text, load_config
+from .doctor import Doctor, render_report
 from .hid_guard import HID_GRAB_MODES, RemoteHIDGuard
 from .injector import PASTE_SHORTCUTS, LinuxTextInjector, TextInjectionError
 from .remote_keys import KeyRunApp, KeyWatchApp, RemoteKeyService
@@ -361,6 +362,18 @@ def cmd_config_validate(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_doctor(args: argparse.Namespace) -> None:
+    report = asyncio.run(
+        Doctor().run(
+            address=args.address,
+            model_dir=args.model_dir,
+        )
+    )
+    print(report.to_json() if args.json else render_report(report))
+    if report.exit_code:
+        raise SystemExit(report.exit_code)
+
+
 def main() -> None:
     """主入口。"""
     parser = argparse.ArgumentParser(
@@ -502,6 +515,26 @@ def main() -> None:
     validate_parser = config_subparsers.add_parser("validate", help="严格校验配置 JSON")
     validate_parser.add_argument("path", help="配置文件路径，或 default")
     validate_parser.set_defaults(func=cmd_config_validate)
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="只读检查蓝牙、输入权限、桌面后端和语音模型",
+    )
+    doctor_parser.add_argument(
+        "-a",
+        "--address",
+        help="指定要检查的遥控器 BLE MAC 地址（默认自动发现）",
+    )
+    doctor_parser.add_argument(
+        "--model-dir",
+        help="指定要检查的 Paraformer 模型目录",
+    )
+    doctor_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="输出适合脚本处理的 JSON",
+    )
+    doctor_parser.set_defaults(func=cmd_doctor)
 
     args = parser.parse_args()
     if getattr(args, "submit", False) and not getattr(args, "inject", False):

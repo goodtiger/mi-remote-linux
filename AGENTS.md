@@ -117,6 +117,7 @@ mi-remote-linux/
 │       ├── adpcm.py       # IMA ADPCM 解码器
 │       ├── voice.py       # 语音转写管道
 │       ├── injector.py    # Wayland 当前焦点文本注入
+│       ├── doctor.py      # 只读安装、权限、桌面与模型诊断
 │       ├── hid_guard.py   # RC003 语音 HID 键过滤与其他键 uinput 转发
 │       ├── runtime.py     # 语音进程单实例锁
 │       ├── text_corrector.py # 可配置的识别术语纠正

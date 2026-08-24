@@ -10,6 +10,7 @@
 - 可把转写结果同时追加到文本文件
 - 进程内常驻 Sherpa-ONNX Paraformer，也可回退 Voxtype CLI 或 faster-whisper
 - 自动发现已配对的 RC003，断线后持续重连
+- `mi-remote doctor` 只读检查蓝牙、输入权限、桌面后端、媒体工具和语音模型
 - 13 键全部可配置，支持短按、长按、双击、OK+方向手势、层和宏
 - 对应 macOS v7 默认心智模型、App 控制模式和前台应用 profile
 - 窗口选择器、任务视图、App 轮盘、系统菜单、教程与鼠标模式
@@ -114,6 +115,25 @@ quit
 ```
 
 stdout 只输出识别文本，状态和日志写到 stderr，便于交给其他程序消费。
+
+### 安装诊断
+
+遇到连接、权限、焦点输入或模型问题时，先运行只读诊断：
+
+```bash
+.venv/bin/mi-remote doctor
+
+# 检查指定遥控器或模型目录
+.venv/bin/mi-remote doctor --address AA:BB:CC:DD:EE:FF
+.venv/bin/mi-remote doctor --model-dir /path/to/paraformer-zh
+
+# CI、安装器或支持脚本可读取 JSON
+.venv/bin/mi-remote doctor --json
+```
+
+`doctor` 只查询 BlueZ、evdev 路径、图形会话、命令和模型文件，不连接 BLE、不独占输入
+设备、不加载模型，也不会安装软件或修改系统配置。有必需项失败时退出码为 `1`；只有可选
+能力警告时退出码仍为 `0`。每个警告或失败都会给出针对性的处理建议。
 
 ### 13 键、层、手势和宏
 
@@ -334,7 +354,8 @@ systemctl --user stop mi-remote-voice.service
 1. Phase C：语音采集、常驻 Paraformer、焦点输入和自动重连（已完成）
 2. Phase B：13 键映射、层、手势、宏与 Wayland/X11 动作后端（已完成）
 3. macOS v7 默认语义、per-app profile、窗口/App 浮层和鼠标模式（已完成）
-4. 后续：原生桌面 GUI 配置编辑器和更多合成器兼容矩阵
+4. 通用 Linux `mi-remote doctor` 安装与运行诊断（已完成）
+5. 后续：原生桌面 GUI 配置编辑器和更多合成器兼容矩阵
 
 ## 参考
 
