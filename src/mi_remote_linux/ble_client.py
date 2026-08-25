@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable, Coroutine, Iterable
 from typing import Any
 
@@ -39,6 +40,7 @@ from .atvv import (
     parse_stream_session_id,
     parse_sync_frame,
 )
+from .voice_drain import VoiceDrainTracker
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +158,9 @@ class ATVVClient:
         self._frame_format_probed = False
         self._probe_buffer = bytearray()
         self._waiting_for_resync = False
+        self._draining = False
+        self._drain_task: asyncio.Task[Any] | None = None
+        self._drain_tracker: VoiceDrainTracker | None = None
 
         self._on_audio_frame = on_audio_frame
         self._on_voice_start = on_voice_start
@@ -260,6 +265,7 @@ class ATVVClient:
         self._suppress_disconnect_notification = True
         # 先让本代回调失效，避免 disconnect() 或迟到 notify 污染下一次连接。
         self._generation += 1
+        self._cancel_drain()
         self._cancel_tasks()
         if client and client.is_connected:
             try:
@@ -386,6 +392,7 @@ class ATVVClient:
         should_notify = self._connection_active or self._connected_notified
         self._connection_active = False
         self._streaming = False
+        self._cancel_drain()
         self._caps_event.set()
         if should_notify and not self._suppress_disconnect_notification:
             self._notify_disconnected()
@@ -475,6 +482,7 @@ class ATVVClient:
     def _handle_stream_start(self, data: bytes) -> None:
         self.capabilities.session_id = parse_stream_session_id(data)
         self._streaming = True
+        self._cancel_drain()
         self._pending_sync = None
         self._header_mode = False
         self._frame_format_probed = False
@@ -503,17 +511,76 @@ class ATVVClient:
 
     def _handle_stream_stop(self, generation: int | None = None) -> None:
         # MIC_CLOSE 会引来遥控器再回一个 0x00，门控避免来回应答。
-        if not self._streaming:
+        if not self._streaming or self._draining:
             return
+        # 不立即结束会话；启动排空任务，等待尾部静默。
+        self._draining = True
+        active_generation = self._generation if generation is None else generation
+
+        tracker = VoiceDrainTracker()
+        tracker.start(time.monotonic())
+        self._drain_tracker = tracker
+
+        async def _run_drain() -> None:
+            if active_generation != self._generation:
+                return
+            try:
+                await self._drain_and_stop(active_generation, tracker)
+            except asyncio.CancelledError:
+                # 只有当自己仍是当前排空时才清理，避免覆盖新任务
+                if self._drain_tracker is tracker:
+                    self._draining = False
+                raise
+            except Exception:
+                logger.exception("语音排空任务异常")
+                if self._drain_tracker is tracker:
+                    self._draining = False
+
+        def _on_drain_done(task: asyncio.Task[Any]) -> None:
+            # 只清理自己的引用，避免覆盖新任务
+            if self._drain_task is task:
+                self._drain_task = None
+                self._drain_tracker = None
+            # 消费异常，避免 "Task exception was never retrieved"
+            if not task.cancelled():
+                exc = task.exception()
+                if exc is not None:
+                    logger.debug("排空任务已完成，异常已消费: %s", exc)
+
+        try:
+            task = asyncio.create_task(_run_drain())
+            task.add_done_callback(_on_drain_done)
+            self._drain_task = task
+        except RuntimeError:
+            self._draining = False
+            self._drain_tracker = None
+            logger.exception("无法启动语音排空任务")
+
+    async def _drain_and_stop(self, generation: int, tracker: VoiceDrainTracker) -> None:
+        """等待尾部静默后安全关闭语音通道并触发转写。
+
+        语音键松开后不立刻结束会话：
+        - 等待最后一次收到新数据后 20ms 确认无新数据
+        - 总超时 170ms 后强制释放
+        - 每约 10ms 检查一次
+        """
+        while True:
+            now = time.monotonic()
+            if tracker.should_release(now):
+                break
+            await asyncio.sleep(0.01)  # 10ms 轮询间隔
+
+        # 只有当自己仍是当前排空时才清理和触发回调
+        if self._drain_tracker is not tracker:
+            return
+
+        self._draining = False
+        self._drain_tracker = None
         self._streaming = False
-        logger.info("音频流结束")
+        logger.info("音频流结束（排空完成）")
         if self._on_voice_stop:
             self._on_voice_stop()
-        active_generation = self._generation if generation is None else generation
-        self._schedule(
-            self._send_mic_close(active_generation),
-            generation=active_generation,
-        )
+        await self._send_mic_close(generation=generation)
 
     def _handle_audio_notify(
         self,
@@ -526,6 +593,10 @@ class ATVVClient:
             return
         if not self._streaming or self._waiting_for_resync or not data:
             return
+
+        # 排空期间，任何通过检查的非空数据都算新活动，重置尾部计时
+        if self._drain_tracker is not None:
+            self._drain_tracker.on_activity(time.monotonic())
 
         if not self._frame_format_probed:
             self._probe_buffer.extend(data)
@@ -629,8 +700,20 @@ class ATVVClient:
             task.cancel()
         self._tasks.clear()
 
+    def _cancel_drain(self) -> None:
+        """取消正在进行的排空任务。"""
+        task = self._drain_task
+        if task is not None and not task.done():
+            task.cancel()
+        # 只清理自己的引用，避免覆盖新任务
+        if self._drain_task is task:
+            self._drain_task = None
+            self._drain_tracker = None
+        self._draining = False
+
     def _reset_connection_state(self) -> int:
         self._generation += 1
+        self._cancel_drain()
         self._cancel_tasks()
         self.capabilities = ATVVCapabilities()
         self._tx_char = None
@@ -647,5 +730,6 @@ class ATVVClient:
         self._frame_format_probed = False
         self._probe_buffer.clear()
         self._waiting_for_resync = False
+        self._draining = False
         self._accumulator = FrameAccumulator()
         return self._generation
