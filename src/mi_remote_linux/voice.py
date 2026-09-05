@@ -141,7 +141,11 @@ class VoicePipeline:
             return False
 
         logger.info("加载 Whisper 模型: %s", self.model_size)
-        self._whisper_model = WhisperModel(self.model_size)
+        try:
+            self._whisper_model = WhisperModel(self.model_size)
+        except Exception as exc:  # noqa: BLE001 - 模型下载和后端异常类型随平台变化
+            logger.error("Whisper 模型加载失败: %s", exc)
+            return False
         return True
 
     def on_voice_start(self) -> None:

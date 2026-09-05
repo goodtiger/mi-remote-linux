@@ -317,6 +317,12 @@ def cmd_voice(args: argparse.Namespace) -> None:
             return
         key_service = RemoteKeyService(mapping_config, action_runner)
 
+    if key_service and args.grab_hid is not None:
+        print(
+            "--config 已接管遥控器输入节点，--grab-hid 本次被忽略",
+            file=sys.stderr,
+        )
+
     app = VoiceApp(
         address=args.address,
         model_size=args.model,
@@ -329,7 +335,7 @@ def cmd_voice(args: argparse.Namespace) -> None:
         output_file=args.output,
         injector=injector,
         text_corrector=text_corrector,
-        hid_guard=key_service or RemoteHIDGuard(mode=args.grab_hid),
+        hid_guard=key_service or RemoteHIDGuard(mode=args.grab_hid or "safe"),
     )
     try:
         with VoiceInstanceLock():
@@ -606,8 +612,9 @@ def main() -> None:
     voice_parser.add_argument(
         "--grab-hid",
         choices=HID_GRAB_MODES,
-        default="safe",
-        help="隔离遥控器语音 HID 键：safe 保留其他键，force 在无 uinput 时仍可独占",
+        default=None,
+        help="隔离遥控器语音 HID 键（默认: safe）：safe 保留其他键，"
+        "force 在无 uinput 时仍可独占；与 --config 同用时被忽略",
     )
     voice_parser.add_argument(
         "--config",
@@ -711,7 +718,7 @@ def main() -> None:
     )
     test_parser.add_argument(
         "--count",
-        type=int,
+        type=_positive_int,
         default=1,
         help="语音测试连续轮数（默认: 1；压力测试建议: 5）",
     )

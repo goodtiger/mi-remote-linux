@@ -1,11 +1,13 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
 
+from mi_remote_linux.action_runner import ActionError
 from mi_remote_linux.desktop import DesktopWindow
 from mi_remote_linux.hid_engine import ButtonEvent
-from mi_remote_linux.interactions import OverlayManager
+from mi_remote_linux.interactions import MouseMode, OverlayManager
 
 
 def event(key, down=True):
@@ -88,3 +90,38 @@ async def test_dangerous_system_menu_action_requires_ok_hold():
     action = runner.run.await_args.args[0]
     assert action.type == "key_stroke" and action.key == "q"
     await overlay.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_mouse_mode_keeps_references_and_reports_click_failures(caplog):
+    runner = AsyncMock()
+    runner.supports_mouse = True
+    runner.mouse_click.side_effect = ActionError("ydotoold 未运行")
+    mouse = MouseMode(runner, AsyncMock())
+    await mouse.toggle()
+
+    assert mouse.handle(event("ok")) is True
+    # 任务必须被强引用，否则可能在执行前被回收。
+    assert len(mouse._tasks) == 1
+    with caplog.at_level(logging.ERROR, logger="mi_remote_linux.interactions"):
+        await asyncio.gather(*mouse._tasks, return_exceptions=True)
+
+    runner.mouse_click.assert_awaited_once_with("left")
+    assert "ydotoold 未运行" in caplog.text
+    await mouse.shutdown()
+    assert mouse._tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_mouse_mode_shutdown_drains_pending_tasks():
+    runner = AsyncMock()
+    runner.supports_mouse = True
+    mouse = MouseMode(runner, AsyncMock())
+    await mouse.toggle()
+
+    mouse.handle(event("menu"))
+    await mouse.shutdown()
+
+    runner.mouse_click.assert_awaited_once_with("right")
+    assert not mouse.active
+    assert mouse._tasks == set()

@@ -1,5 +1,6 @@
 """CLI 语音结果输出测试。"""
 
+import contextlib
 import json
 import sys
 from unittest.mock import AsyncMock
@@ -227,3 +228,38 @@ def test_model_status_cli_returns_nonzero_for_invalid_model(monkeypatch, capsys)
 
     assert exc_info.value.code == 1
     assert "状态：不可用" in capsys.readouterr().out
+
+
+def test_voice_test_count_rejects_zero(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["mi-remote", "test", "voice", "--count", "0"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_module.main()
+
+    assert exc_info.value.code == 2
+    assert "必须大于等于 1" in capsys.readouterr().err
+
+
+def test_grab_hid_is_reported_as_ignored_when_config_takes_over(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mi-remote", "voice", "--config", "default", "--grab-hid", "off"],
+    )
+    monkeypatch.setattr(
+        main_module.LinuxActionRunner,
+        "missing_dependencies",
+        lambda _self: [],
+    )
+    started = []
+    monkeypatch.setattr(main_module.asyncio, "run", lambda coroutine: coroutine.close())
+    monkeypatch.setattr(main_module, "VoiceInstanceLock", contextlib.nullcontext)
+    monkeypatch.setattr(
+        main_module,
+        "RemoteKeyService",
+        lambda *args, **kwargs: started.append(args) or object(),
+    )
+
+    main_module.main()
+
+    assert "--grab-hid 本次被忽略" in capsys.readouterr().err

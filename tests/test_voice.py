@@ -238,3 +238,18 @@ def test_voxtype_transcription_uses_last_nonempty_output_line(tmp_path, monkeypa
     text = pipeline.transcribe(voiced_samples())
 
     assert text == "这是小米遥控器语音输入测试"
+
+
+def test_whisper_load_failure_is_reported_without_raising(monkeypatch):
+    class BrokenWhisper:
+        def __init__(self, *_args, **_kwargs):
+            raise RuntimeError("无法下载模型")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "faster_whisper",
+        SimpleNamespace(WhisperModel=BrokenWhisper),
+    )
+    pipeline = VoicePipeline(engine="faster-whisper")
+
+    assert pipeline.load_model() is False

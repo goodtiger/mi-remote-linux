@@ -198,3 +198,58 @@ async def test_force_mode_tolerates_evdev_uinput_error(monkeypatch):
 
     assert guard.grabbed_paths == ("/dev/input/event5",)
     await guard.stop()
+
+
+@pytest.mark.asyncio
+async def test_grab_failure_is_retried_on_the_next_scan(monkeypatch):
+    device = FakeDevice("/dev/input/event8", [FakeEcodes.KEY_F5])
+    attempts = []
+
+    def grab():
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise OSError(16, "Device or resource busy")
+        device.grabbed = True
+
+    device.grab = grab
+    guard = RemoteHIDGuard(evdev_module=FakeEvdev([device]))
+    loop = __import__("asyncio").get_running_loop()
+    monkeypatch.setattr(loop, "add_reader", lambda *_args: None)
+    monkeypatch.setattr(loop, "remove_reader", lambda *_args: None)
+
+    await guard.start()
+    assert guard.grabbed_paths == ()
+
+    # 权限或占用是暂时的：下一轮扫描必须重新尝试这个节点。
+    await guard._scan_once()
+
+    assert guard.grabbed_paths == ("/dev/input/event8",)
+    assert device.grabbed is True
+    await guard.stop()
+
+
+@pytest.mark.asyncio
+async def test_open_failure_is_retried_on_the_next_scan(monkeypatch):
+    device = FakeDevice("/dev/input/event9", [FakeEcodes.KEY_F5])
+    evdev = FakeEvdev([device])
+    opens = []
+
+    def open_device(path):
+        opens.append(path)
+        if len(opens) == 1:
+            raise OSError(13, "Permission denied")
+        return device
+
+    evdev.InputDevice = open_device
+    guard = RemoteHIDGuard(evdev_module=evdev)
+    loop = __import__("asyncio").get_running_loop()
+    monkeypatch.setattr(loop, "add_reader", lambda *_args: None)
+    monkeypatch.setattr(loop, "remove_reader", lambda *_args: None)
+
+    await guard.start()
+    assert guard.grabbed_paths == ()
+
+    await guard._scan_once()
+
+    assert guard.grabbed_paths == ("/dev/input/event9",)
+    await guard.stop()

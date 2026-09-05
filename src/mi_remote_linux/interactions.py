@@ -175,7 +175,8 @@ class OverlayManager:
                 OverlayEntry("使用配置：mi-remote voice --config my-remote.json --inject"),
             ]
         if name == "app_launcher":
-            return self._desktop_apps()
+            # 遍历并读取所有 .desktop 文件是阻塞 IO，不能占住事件循环。
+            return await asyncio.to_thread(self._desktop_apps)
         raise DesktopActionError(f"unknown overlay: {name}")
 
     def _desktop_apps(self) -> list[OverlayEntry]:
@@ -376,6 +377,7 @@ class MouseMode:
         self._hold_started = 0.0
         self._move_task: asyncio.Task[None] | None = None
         self._idle: asyncio.TimerHandle | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
 
     async def toggle(self) -> None:
         if self.active:
@@ -389,6 +391,12 @@ class MouseMode:
             "MiRemote · 鼠标模式",
             "方向键移动 · OK左键 · 菜单右键 · 返回退出",
         )
+
+    async def shutdown(self) -> None:
+        await self.deactivate()
+        tasks = tuple(self._tasks)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def deactivate(self, message: str = "") -> None:
         if not self.active:
@@ -422,17 +430,17 @@ class MouseMode:
             return True
         if event.key == "ok":
             if event.is_down:
-                asyncio.create_task(self.runner.mouse_click("left"))
+                self._spawn(self.runner.mouse_click("left"))
             self._restart_idle()
             return True
         if event.key == "menu":
             if event.is_down:
-                asyncio.create_task(self.runner.mouse_click("right"))
+                self._spawn(self.runner.mouse_click("right"))
             self._restart_idle()
             return True
         if event.key == "back":
             if event.is_down:
-                asyncio.create_task(self.deactivate("已退出鼠标模式"))
+                self._spawn(self.deactivate("已退出鼠标模式"))
             return True
         return False
 
@@ -466,6 +474,19 @@ class MouseMode:
             self._idle_expired,
         )
 
+    def _spawn(self, awaitable: Awaitable[None]) -> None:
+        task = asyncio.create_task(awaitable)
+        self._tasks.add(task)
+        task.add_done_callback(self._done)
+
+    def _done(self, task: asyncio.Task[None]) -> None:
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error:
+            logger.error("mouse action failed: %s", error)
+
     def _idle_expired(self) -> None:
         self._idle = None
         if not self.active:
@@ -473,4 +494,4 @@ class MouseMode:
         if self._held:
             self._restart_idle()
             return
-        asyncio.create_task(self.deactivate("鼠标模式空闲超时"))
+        self._spawn(self.deactivate("鼠标模式空闲超时"))

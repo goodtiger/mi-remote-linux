@@ -84,11 +84,14 @@ class RemoteHIDGuard:
             self._consider(path)
 
     def _consider(self, path: str) -> None:
+        # 打开、读能力和独占失败都是暂时的（udev 规则未生效、其他进程短暂占用），
+        # 必须从 _observed_paths 移除，否则下一轮扫描不会再看这个节点。
         assert self._evdev is not None
         try:
             device = self._evdev.InputDevice(path)
         except OSError as exc:
             self._warn_once(path, "无法打开输入节点 %s: %s", path, exc)
+            self._observed_paths.discard(path)
             return
 
         if not self._is_rc003(device):
@@ -99,6 +102,7 @@ class RemoteHIDGuard:
             keys = set(device.capabilities().get(self._evdev.ecodes.EV_KEY, []))
         except OSError as exc:
             self._warn_once(path, "无法读取输入节点能力 %s: %s", path, exc)
+            self._observed_paths.discard(path)
             device.close()
             return
         voice_codes = set(RC003_VOICE_CODES) & keys
@@ -120,6 +124,7 @@ class RemoteHIDGuard:
                 path,
                 exc,
             )
+            self._observed_paths.discard(path)
             if relay:
                 relay.close()
             device.close()

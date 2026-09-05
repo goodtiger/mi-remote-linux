@@ -264,3 +264,22 @@ async def test_hyprland_show_desktop_toggles_empty_and_original_workspace():
         "dispatch",
         'hl.dsp.focus({ workspace = "4" })',
     )
+
+
+@pytest.mark.asyncio
+async def test_application_tracker_survives_unexpected_backend_errors():
+    class BrokenDesktop:
+        values = iter([KeyError("class"), "firefox"])
+
+        async def active_application(self):
+            value = next(self.values)
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+    changes = []
+    tracker = ApplicationTracker(BrokenDesktop(), changes.append)
+    await tracker._poll()
+    await tracker._poll()
+
+    assert changes == ["firefox"]

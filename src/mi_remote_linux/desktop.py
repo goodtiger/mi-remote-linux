@@ -585,6 +585,9 @@ class ApplicationTracker:
         except DesktopActionError as exc:
             logger.debug("active app detection failed: %s", exc)
             current = None
+        except Exception:  # 合成器返回的 JSON 结构异常不应终止轮询
+            logger.warning("active app detection failed unexpectedly", exc_info=True)
+            current = None
         if current != self._last:
             self._last = current
             self.on_change(current)

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import signal
 import sys
+from collections.abc import Awaitable
 
 from .action_runner import LinuxActionRunner
 from .config import MappingConfig
@@ -12,6 +14,8 @@ from .desktop import ApplicationTracker
 from .hid_engine import ButtonEvent, HIDEngine
 from .interactions import MouseMode, OverlayManager
 from .mapping_engine import MappingEngine
+
+logger = logging.getLogger(__name__)
 
 
 class RemoteKeyService:
@@ -40,6 +44,7 @@ class RemoteKeyService:
             on_reset=self.mapping.reset,
             key_codes=config.key_codes,
         )
+        self._tasks: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
         await self.tracker.start()
@@ -52,13 +57,16 @@ class RemoteKeyService:
     async def stop(self) -> None:
         await self.hid.stop()
         await self.tracker.stop()
-        await self.mouse.deactivate()
+        await self.mouse.shutdown()
         await self.overlay.shutdown()
         await self.mapping.close()
+        tasks = tuple(self._tasks)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def _on_layer(self, layer: int) -> None:
         print(f"🎛️  遥控器层: {layer}", file=sys.stderr, flush=True)
-        asyncio.create_task(self.overlay.show_layer(layer, self.mapping.active_profile))
+        self._spawn(self.overlay.show_layer(layer, self.mapping.active_profile))
 
     def _filter_event(self, event: ButtonEvent) -> bool:
         if self.overlay.handle(event):
@@ -66,8 +74,21 @@ class RemoteKeyService:
         return self.mouse.handle(event)
 
     def _on_escape(self) -> None:
-        asyncio.create_task(self.overlay.close("已紧急退出"))
-        asyncio.create_task(self.mouse.deactivate())
+        self._spawn(self.overlay.close("已紧急退出"))
+        self._spawn(self.mouse.deactivate())
+
+    def _spawn(self, awaitable: Awaitable[None]) -> None:
+        task = asyncio.create_task(awaitable)
+        self._tasks.add(task)
+        task.add_done_callback(self._done)
+
+    def _done(self, task: asyncio.Task[None]) -> None:
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error:
+            logger.error("remote key service action failed: %s", error)
 
 
 class KeyWatchApp:

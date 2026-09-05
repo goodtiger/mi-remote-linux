@@ -278,7 +278,7 @@ class TestATVVClientDrain:
 
         # 10ms 后发送 30 字节残片（不足 120 字节一帧）
         await asyncio.sleep(0.010)
-        client._handle_audio_notify(None, bytearray(b"\xAB" * 30))
+        client._handle_audio_notify(None, bytearray(b"\xab" * 30))
 
         # 此时不应释放
         await asyncio.sleep(0.010)

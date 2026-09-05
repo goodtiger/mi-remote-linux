@@ -63,11 +63,8 @@ WAYLAND_KEYS = {
     "right_bracket": "bracketright",
 }
 
-X11_KEYS = {
-    **WAYLAND_KEYS,
-    "page_up": "Page_Up",
-    "page_down": "Page_Down",
-}
+# X11 目前与 Wayland 共用同一套 keysym 名称；保留独立表以便后续按后端分化。
+X11_KEYS = {**WAYLAND_KEYS}
 
 MEDIA_KEYS = {
     "volume_up": "XF86AudioRaiseVolume",
@@ -479,7 +476,7 @@ class LinuxActionRunner:
             await self._run_command(self.xdotool, "click", number)
             return
         if self.ydotool:
-            # Linux input BTN_LEFT=0x110, BTN_RIGHT=0x111.
+            # ydotool click 自有编码：0x40 按下、0x80 抬起，低位 0 左键、1 右键。
             code = "0xC0" if button == "left" else "0xC1"
             await self._run_command(self.ydotool, "click", code)
             return

@@ -148,6 +148,8 @@ class ATVVClient:
         self._connected_notified = False
         self._disconnected_notified = False
         self._suppress_disconnect_notification = False
+        # 有意跨连接保留：退出时即使最后一次重连失败，也仍能恢复上一次已知设备的
+        # BlueZ/HID 连接，因此不在 _reset_connection_state() 中清空。
         self._restore_device_path: str | None = None
         self._tasks: set[asyncio.Task[Any]] = set()
         self._generation = 0
