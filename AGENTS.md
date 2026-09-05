@@ -119,6 +119,7 @@ mi-remote-linux/
 │       ├── atvv.py        # ATVV 协议状态机
 │       ├── adpcm.py       # IMA ADPCM 解码器
 │       ├── voice.py       # 语音转写管道
+│       ├── voice_drain.py # 语音键松开后的尾部排空计时
 │       ├── injector.py    # Wayland 当前焦点文本注入
 │       ├── doctor.py      # 只读安装、权限、桌面与模型诊断
 │       ├── self_test.py   # 13 键、连续语音与桌面交互验收
